@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	sessionCookie = "skysb_session"
+	sessionCookie = "skysbx_session"
 	sessionMaxAge = 12 * time.Hour
 )
 
@@ -33,7 +33,7 @@ func newSessions(key []byte) *sessions { return &sessions{key: key} }
 func newSessionKey() []byte {
 	k := make([]byte, 32)
 	if _, err := rand.Read(k); err != nil {
-		panic("skysb: cannot read random bytes: " + err.Error())
+		panic("skysbx: cannot read random bytes: " + err.Error())
 	}
 	return k
 }

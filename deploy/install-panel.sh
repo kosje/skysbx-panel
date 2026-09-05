@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Install the skysb panel on a Debian/Ubuntu host.
+# Install the skysbx panel on a Debian/Ubuntu host.
 #
 #   sudo ./install-panel.sh --domain panel.example.com --email you@example.com
 #
 # Re-running upgrades the binary in place; the database is never touched.
 set -euo pipefail
 
-ROOT=${SKYSB_ROOT:-/opt/skysb}
+ROOT=${SKYSBX_ROOT:-/opt/skysbx}
 DOMAIN=""
 EMAIL=""
 SRC_DIR=""
 GH_TOKEN=${GITHUB_TOKEN:-}
-GH_OWNER=${SKYSB_GH_OWNER:-kosje}
-REF=${SKYSB_REF:-main}
+GH_OWNER=${SKYSBX_GH_OWNER:-kosje}
+REF=${SKYSBX_REF:-main}
 
 RED=$'\e[31m'; GRN=$'\e[32m'; YLW=$'\e[33m'; BLD=$'\e[1m'; RST=$'\e[0m'
 say()  { printf '%s==>%s %s\n' "$BLD" "$RST" "$*"; }
@@ -83,7 +83,7 @@ fi
 
 # Only check the ports on a first install: on an upgrade they are held by the
 # panel this script is about to replace.
-if ! systemctl is-enabled --quiet skysb-panel 2>/dev/null; then
+if ! systemctl is-enabled --quiet skysbx-panel 2>/dev/null; then
     for port in 80 443; do
         if ss -tlnH | awk '{print $4}' | grep -qE "[:.]$port\$"; then
             die "port $port is in use; the panel terminates its own TLS and needs both"
@@ -100,16 +100,16 @@ mkdir -p "$BUILD"
 
 say "sources"
 if [ -n "$SRC_DIR" ]; then
-    rm -rf "$BUILD/skysb-panel"
-    cp -a "$SRC_DIR" "$BUILD/skysb-panel"
+    rm -rf "$BUILD/skysbx-panel"
+    cp -a "$SRC_DIR" "$BUILD/skysbx-panel"
     ok "using $SRC_DIR"
 else
-    URL="https://github.com/${GH_OWNER}/skysb-panel.git"
-    [ -n "$GH_TOKEN" ] && URL="https://${GH_TOKEN}@github.com/${GH_OWNER}/skysb-panel.git"
-    rm -rf "$BUILD/skysb-panel"
-    git clone -q --branch "$REF" --depth 1 "$URL" "$BUILD/skysb-panel" \
-        || die "cannot clone ${GH_OWNER}/skysb-panel (a private repo needs GITHUB_TOKEN)"
-    ok "$(git -C "$BUILD/skysb-panel" rev-parse --short HEAD)"
+    URL="https://github.com/${GH_OWNER}/skysbx-panel.git"
+    [ -n "$GH_TOKEN" ] && URL="https://${GH_TOKEN}@github.com/${GH_OWNER}/skysbx-panel.git"
+    rm -rf "$BUILD/skysbx-panel"
+    git clone -q --branch "$REF" --depth 1 "$URL" "$BUILD/skysbx-panel" \
+        || die "cannot clone ${GH_OWNER}/skysbx-panel (a private repo needs GITHUB_TOKEN)"
+    ok "$(git -C "$BUILD/skysbx-panel" rev-parse --short HEAD)"
 fi
 
 # Sources that travelled through a Windows checkout carry CRLF, and bash then
@@ -122,26 +122,26 @@ if ! command -v docker >/dev/null; then
 fi
 
 say "building"
-docker run --rm -v "$BUILD/skysb-panel:/src" -w /src \
+docker run --rm -v "$BUILD/skysbx-panel:/src" -w /src \
     -e GOFLAGS=-buildvcs=false -e CGO_ENABLED=0 -e GOOS=linux \
     golang:1.27 \
-    go build -trimpath -ldflags '-s -w' -o /src/skysb-panel ./cmd/panel
-install -m 0755 "$BUILD/skysb-panel/skysb-panel" "$ROOT/skysb-panel"
+    go build -trimpath -ldflags '-s -w' -o /src/skysbx-panel ./cmd/panel
+install -m 0755 "$BUILD/skysbx-panel/skysbx-panel" "$ROOT/skysbx-panel"
 ok "panel binary installed"
 
 # ─────────────────────────────── service ──────────────────────────────────
 
 say "service"
-cat > /etc/systemd/system/skysb-panel.service <<EOF
+cat > /etc/systemd/system/skysbx-panel.service <<EOF
 [Unit]
-Description=skysb panel
+Description=skysbx panel
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=${ROOT}
-ExecStart=${ROOT}/skysb-panel --domain ${DOMAIN} --acme-email ${EMAIL} --db ${ROOT}/skysb.db
+ExecStart=${ROOT}/skysbx-panel --domain ${DOMAIN} --acme-email ${EMAIL} --db ${ROOT}/skysbx.db
 Restart=always
 RestartSec=3
 
@@ -159,8 +159,8 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable -q skysb-panel
-systemctl restart skysb-panel
+systemctl enable -q skysbx-panel
+systemctl restart skysbx-panel
 ok "systemd unit installed"
 
 printf '    waiting for a certificate '
@@ -174,13 +174,13 @@ done
 
 cat <<EOF
 
-${GRN}skysb panel
+${GRN}skysbx panel
 ===========
 Panel     https://${DOMAIN}
 Setup     https://${DOMAIN}/setup   ← create the administrator here
-Data      ${ROOT}/skysb.db          ← the whole of the panel's state
+Data      ${ROOT}/skysbx.db          ← the whole of the panel's state
 
-Logs      journalctl -u skysb-panel -f
+Logs      journalctl -u skysbx-panel -f
 
 Next: open the setup page, then add a node and copy its join token.${RST}
 EOF

@@ -10,8 +10,8 @@ package sub
 import (
 	"fmt"
 
-	"github.com/kosje/skysb-panel/internal/service"
-	"github.com/kosje/skysb-panel/internal/store"
+	"github.com/kosje/skysbx-panel/internal/service"
+	"github.com/kosje/skysbx-panel/internal/store"
 )
 
 // Entry is one connectable endpoint: a user's credentials against one inbound

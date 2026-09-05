@@ -12,8 +12,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/kosje/skysb-panel/internal/service"
-	"github.com/kosje/skysb-panel/internal/store"
+	"github.com/kosje/skysbx-panel/internal/service"
+	"github.com/kosje/skysbx-panel/internal/store"
 )
 
 // fixture builds one node with all three protocols and one active user.

@@ -3,7 +3,7 @@ package sub
 import (
 	"gopkg.in/yaml.v3"
 
-	"github.com/kosje/skysb-panel/internal/store"
+	"github.com/kosje/skysbx-panel/internal/store"
 )
 
 // clashProxy is mihomo's proxy schema. Field order here is the order they

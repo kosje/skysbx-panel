@@ -1,4 +1,4 @@
-// Command panel runs the skysb control plane: admin UI, subscriptions and the
+// Command panel runs the skysbx control plane: admin UI, subscriptions and the
 // node control channel, backed by a single SQLite file.
 package main
 
@@ -15,16 +15,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kosje/skysb-panel/internal/hub"
-	"github.com/kosje/skysb-panel/internal/service"
-	"github.com/kosje/skysb-panel/internal/store"
-	"github.com/kosje/skysb-panel/internal/web"
+	"github.com/kosje/skysbx-panel/internal/hub"
+	"github.com/kosje/skysbx-panel/internal/service"
+	"github.com/kosje/skysbx-panel/internal/store"
+	"github.com/kosje/skysbx-panel/internal/web"
 )
 
 func main() {
 	var (
 		addr     = flag.String("addr", "127.0.0.1:8080", "address to listen on")
-		dbPath   = flag.String("db", "skysb.db", "path to the SQLite database")
+		dbPath   = flag.String("db", "skysbx.db", "path to the SQLite database")
 		logLevel = flag.String("log", "info", "log level: debug, info, warn, error")
 		insecure = flag.Bool("insecure-cookies", false,
 			"send session cookies without the Secure flag (plain HTTP; development only)")

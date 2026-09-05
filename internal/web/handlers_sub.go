@@ -4,9 +4,9 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/kosje/skysb-panel/internal/service"
-	"github.com/kosje/skysb-panel/internal/store"
-	"github.com/kosje/skysb-panel/internal/sub"
+	"github.com/kosje/skysbx-panel/internal/service"
+	"github.com/kosje/skysbx-panel/internal/store"
+	"github.com/kosje/skysbx-panel/internal/sub"
 )
 
 // getSubscription serves a user's configuration in whatever format their client

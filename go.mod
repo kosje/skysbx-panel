@@ -1,4 +1,4 @@
-module github.com/kosje/skysb-panel
+module github.com/kosje/skysbx-panel
 
 go 1.27.0
 

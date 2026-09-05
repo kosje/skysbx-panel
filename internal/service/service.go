@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kosje/skysb-panel/internal/store"
+	"github.com/kosje/skysbx-panel/internal/store"
 )
 
 // Notifier lets the service tell the node hub that something it pushes has

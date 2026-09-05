@@ -10,7 +10,7 @@ package hub
 import (
 	"encoding/json"
 
-	"github.com/kosje/skysb-panel/internal/singbox"
+	"github.com/kosje/skysbx-panel/internal/singbox"
 )
 
 // Message types. Three commands travel down; the rest are the node reporting.

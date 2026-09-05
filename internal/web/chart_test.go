@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kosje/skysb-panel/internal/service"
+	"github.com/kosje/skysbx-panel/internal/service"
 )
 
 func days(values ...int64) []service.DailyTotal {

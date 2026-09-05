@@ -19,8 +19,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kosje/skysb-panel/internal/service"
-	"github.com/kosje/skysb-panel/internal/store"
+	"github.com/kosje/skysbx-panel/internal/service"
+	"github.com/kosje/skysbx-panel/internal/store"
 )
 
 //go:embed templates/*.html static/*
@@ -89,7 +89,7 @@ func (s *Server) Handler() http.Handler {
 	static, err := fs.Sub(assets, "static")
 	if err != nil {
 		// Impossible: the directory is embedded at compile time.
-		panic("skysb: embedded static assets missing: " + err.Error())
+		panic("skysbx: embedded static assets missing: " + err.Error())
 	}
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(static))))
 

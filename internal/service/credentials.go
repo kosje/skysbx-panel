@@ -13,7 +13,7 @@ import (
 func randomBytes(n int) []byte {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
-		panic("skysb: cannot read random bytes: " + err.Error())
+		panic("skysbx: cannot read random bytes: " + err.Error())
 	}
 	return b
 }

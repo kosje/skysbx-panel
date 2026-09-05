@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kosje/skysb-panel/internal/store"
+	"github.com/kosje/skysbx-panel/internal/store"
 )
 
 func TestBuildVLESSReality(t *testing.T) {
@@ -106,7 +106,7 @@ func TestBuildAnyTLS(t *testing.T) {
 
 	in, err := BuildInbound(InboundSpec{
 		Protocol: store.ProtoAnyTLS, Tag: "anytls-tokyo", Port: 8443,
-		CertPath: "/opt/skysb/cert.pem", KeyPath: "/opt/skysb/key.pem",
+		CertPath: "/opt/skysbx/cert.pem", KeyPath: "/opt/skysbx/key.pem",
 		ServerName: "jp.example.com",
 	})
 	if err != nil {

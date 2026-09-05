@@ -3,8 +3,8 @@ package sub
 import (
 	"encoding/json"
 
-	"github.com/kosje/skysb-panel/internal/singbox"
-	"github.com/kosje/skysb-panel/internal/store"
+	"github.com/kosje/skysbx-panel/internal/singbox"
+	"github.com/kosje/skysbx-panel/internal/store"
 )
 
 // Tags for the outbounds the panel always emits.

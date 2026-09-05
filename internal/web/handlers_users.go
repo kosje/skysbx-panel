@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kosje/skysb-panel/internal/service"
+	"github.com/kosje/skysbx-panel/internal/service"
 )
 
 // nowFunc exists so tests can pin time without a clock abstraction threaded

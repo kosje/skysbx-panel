@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/kosje/skysb-panel/internal/service"
+	"github.com/kosje/skysbx-panel/internal/service"
 )
 
 func (s *Server) getSetup(w http.ResponseWriter, r *http.Request) {

@@ -1,11 +1,12 @@
-# skysb-panel
+# skysbx-panel
 
 代理面板的控制端：用户、节点、订阅、计费。
 
-节点端是独立的 [`skysb-node`](https://github.com/kosje/skysb-node)，两者通过一条
+节点端是独立的 [`skysbx-node`](https://github.com/kosje/skysbx-node)，两者通过一条
 WebSocket 通信。
 
-> **状态：开发中。** 见 [`docs/DESIGN.md`](docs/DESIGN.md)。目前完成到 M1。
+> **状态：M1–M6 已完成**（数据模型、节点协议、订阅、计费、界面、自动 TLS）。
+> 设计见 [`docs/DESIGN.md`](docs/DESIGN.md)。
 
 ## 这个项目为什么存在
 
@@ -41,8 +42,8 @@ TLS 由面板自己用 ACME 处理，不需要前置反向代理。备份就是�
 ### 面板
 
 ```bash
-git clone https://github.com/kosje/skysb-panel.git
-cd skysb-panel
+git clone https://github.com/kosje/skysbx-panel.git
+cd skysbx-panel
 sudo ./deploy/install-panel.sh --domain panel.example.com --email you@example.com
 ```
 
@@ -55,8 +56,8 @@ sudo ./deploy/install-panel.sh --domain panel.example.com --email you@example.co
 在面板里 **Nodes → 新增**，复制那个只显示一次的接入 token，然后在新服务器上：
 
 ```bash
-git clone https://github.com/kosje/skysb-node.git
-cd skysb-node
+git clone https://github.com/kosje/skysbx-node.git
+cd skysbx-node
 sudo ./deploy/install-node.sh --panel https://panel.example.com --token <token>
 ```
 

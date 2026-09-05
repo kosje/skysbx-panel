@@ -14,7 +14,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/kosje/skysb-panel/internal/service"
+	"github.com/kosje/skysbx-panel/internal/service"
 )
 
 const (
