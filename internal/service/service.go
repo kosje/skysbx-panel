@@ -221,12 +221,12 @@ func (s *Service) UpdateNode(n *store.Node) error {
 		return err
 	}
 
-	// Tags derived from the old name follow it, so "ss-tokyo" does not outlive
-	// a node called tokyo. That rewrites the config the node runs, so it has to
-	// be pushed — and the user lists keyed by those tags go with it.
+	// Tags follow the node name, so "ss-tokyo" does not outlive a node called
+	// tokyo. That rewrites the config the node runs, so it has to be pushed —
+	// and the user lists keyed by those tags go with it.
 	renamed := 0
 	if prev.Name != n.Name {
-		renamed, err = s.renameNodeInbounds(n.ID, prev.Name, n.Name)
+		renamed, err = s.retagNodeInbounds(n.ID, n.Name)
 		if err != nil {
 			return err
 		}
@@ -292,26 +292,7 @@ func (s *Service) CreateInbound(nodeID int64, spec InboundSpec) (*store.Inbound,
 // accepts, and two nodes that sanitise to the same string still get distinct
 // tags from the suffix loop.
 func (s *Service) deriveInboundTag(protocol, nodeName string) string {
-	proto := protocol
-	if proto == store.ProtoShadowsocks {
-		proto = "ss" // "shadowsocks-tokyo" is a mouthful in every log line
-	}
-
-	slug := strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_':
-			return r
-		case r >= 'A' && r <= 'Z':
-			return r + ('a' - 'A')
-		default:
-			return -1
-		}
-	}, nodeName)
-	if slug == "" {
-		slug = "node"
-	}
-
-	base := proto + "-" + slug
+	base := protoSlug(protocol) + "-" + nodeSlug(nodeName)
 	candidate := base
 	for i := 2; ; i++ {
 		if _, err := s.st.InboundByTag(candidate); errors.Is(err, store.ErrNotFound) {

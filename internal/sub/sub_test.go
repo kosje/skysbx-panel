@@ -256,15 +256,10 @@ func TestShareLinkNameCarriesTheAccount(t *testing.T) {
 		}
 	}
 
-	// A hand-typed tag says nothing about which node it is on. In a list
-	// spanning several nodes that is unanswerable, so the node name goes in
-	// front of the tags that do not already carry it.
-	if got := label("tokyo", "01", u, time.Now()); !strings.HasPrefix(got, "tokyo 01") {
-		t.Errorf("label for a bare tag is %q, want it prefixed with the node", got)
-	}
-	// And not in front of the ones that do — "tokyo ss-tokyo" reads as a bug.
-	if got := label("tokyo", "ss-tokyo", u, time.Now()); !strings.HasPrefix(got, "ss-tokyo") {
-		t.Errorf("label for a derived tag is %q, want no redundant node name", got)
+	// The tag already carries the node name — it is derived from it, and
+	// re-derived on every rename — so repeating it would read as a stutter.
+	if got := label("ss-tokyo", u, time.Now()); !strings.HasPrefix(got, "ss-tokyo |") {
+		t.Errorf("label is %q, want it to start with the tag alone", got)
 	}
 
 	raw, err := base64.StdEncoding.DecodeString(Base64(entries))

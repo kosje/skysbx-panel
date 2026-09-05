@@ -42,6 +42,13 @@ TLS 由面板自己用 ACME 处理，不需要前置反向代理。备份就是�
 ### 面板
 
 ```bash
+sudo sh -c "$(wget -qO- https://raw.githubusercontent.com/kosje/skysbx-panel/main/install.sh)" \
+  -- --domain panel.example.com --email you@example.com
+```
+
+不带参数就是交互式。等价的手动方式：
+
+```bash
 git clone https://github.com/kosje/skysbx-panel.git
 cd skysbx-panel
 sudo ./deploy/install-panel.sh --domain panel.example.com --email you@example.com
@@ -56,20 +63,27 @@ sudo ./deploy/install-panel.sh --domain panel.example.com --email you@example.co
 在面板里 **Nodes → 新增**，复制那个只显示一次的接入 token，然后在新服务器上：
 
 ```bash
-git clone https://github.com/kosje/skysbx-node.git
-cd skysbx-node
-sudo ./deploy/install-node.sh --panel https://panel.example.com --token <token>
+sudo sh -c "$(wget -qO- https://raw.githubusercontent.com/kosje/skysbx-node/main/install.sh)"
 ```
 
-不带参数就是交互式。节点**主动连面板**，所以它不需要开放任何控制端口、不需要面板能路由到它，NAT 后面也能用。
+它会问面板地址和 token。要非交互就带参数：
+
+```bash
+sudo sh -c "$(wget -qO- https://raw.githubusercontent.com/kosje/skysbx-node/main/install.sh)" \
+  -- --panel https://panel.example.com --token <token>
+```
+
+节点**主动连面板**，所以它不需要开放任何控制端口、不需要面板能路由到它，NAT 后面也能用。
 
 `--domain` 是可选的：只有 AnyTLS 需要证书，Reality 和 Shadowsocks 都不需要。给了域名脚本就用 certbot 签证书(`--cf-token` 可走 DNS-01)；不给就只跑另外两个协议。
 
 > 节点域名必须是 **DNS-only(灰云)**。三个协议都不是 HTTP，套 CDN 会全部失效。
 
-### 私有仓库
+### 离线 / 自建镜像
 
-两个仓库如果是私有的，`export GITHUB_TOKEN=...` 后再跑脚本即可。也可以用 `--src` / `--fork` 指向本地已有的检出，完全离线安装。
+`--src`（面板或节点源码）和 `--fork`（打过补丁的 sing-box）可以指向本机已有的检出，完全不联网安装。仓库设为私有的话，`export GITHUB_TOKEN=...` 后再跑；token 走 per-command header，不会落到 `.git/config` 里。
+
+一键脚本认这几个环境变量：`SKYSBX_REPO`、`SKYSBX_FORK`、`SKYSBX_REF`。
 
 ## 开发
 

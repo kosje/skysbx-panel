@@ -80,7 +80,7 @@ func Build(u *store.User, nodes []*store.Node, inbounds []*store.Inbound,
 
 		e := Entry{
 			Name:     in.Tag,
-			Label:    label(node.Name, in.Tag, u, nowFunc()),
+			Label:    label(in.Tag, u, nowFunc()),
 			Protocol: in.Protocol,
 			Address:  node.Address,
 			Port:     in.Port,

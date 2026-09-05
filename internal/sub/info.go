@@ -25,16 +25,13 @@ import (
 // stable tag instead: their names are also group members and rule targets, and
 // a usage figure baked into one changes on every fetch — the client then sees a
 // different set of servers each time and loses whatever the user had selected.
-func label(node, tag string, u *store.User, now time.Time) string {
-	// The tag is the server's identity everywhere else in this panel, and a
-	// derived one already reads "ss-tokyo". A hand-typed tag like "01" does
-	// not, and in a list spanning several nodes that is unanswerable — so the
-	// node name goes in front of the ones that do not already carry it.
-	name := tag
-	if node != "" && !strings.Contains(tag, node) {
-		name = node + " " + tag
-	}
-	parts := []string{name, u.Name}
+// The tag alone identifies the server: it is derived from the protocol and the
+// node name, and re-derived whenever the node is renamed, so "ss-tokyo" says
+// both things a list spanning several nodes needs. Repeating the node name in
+// front of it was a workaround for tags that could drift out of step, and it
+// read as a stutter once they could not.
+func label(tag string, u *store.User, now time.Time) string {
+	parts := []string{tag, u.Name}
 
 	if u.TrafficLimit > 0 {
 		parts = append(parts, fmt.Sprintf("%s/%s",

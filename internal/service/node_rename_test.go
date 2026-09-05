@@ -6,10 +6,14 @@ import (
 	"github.com/kosje/skysbx-panel/internal/store"
 )
 
-// A tag derived from the node name should follow the node when it is renamed —
-// "ss-tokyo" on a node called osaka is a lie every log line repeats. A tag
-// someone typed is theirs and must be left alone.
-func TestRenamingANodeRewritesOnlyDerivedTags(t *testing.T) {
+// Every tag on the node follows the rename, including one that was typed by
+// hand: a tag reading "01" on a node called osaka identifies neither the node
+// nor the protocol, and it is the name that shows up in the node's logs, the
+// panel's tables and the client's server list.
+//
+// Two inbounds of the same protocol get a numeric suffix, assigned in creation
+// order so the same rename always produces the same tags.
+func TestRenamingANodeRewritesEveryTag(t *testing.T) {
 	svc, nodeID := editFixture(t)
 
 	derived, err := svc.CreateInbound(nodeID, InboundSpec{
@@ -21,8 +25,7 @@ func TestRenamingANodeRewritesOnlyDerivedTags(t *testing.T) {
 		t.Fatalf("derived tag is %q, want ss-tokyo", derived.Tag)
 	}
 	chosen, err := svc.CreateInbound(nodeID, InboundSpec{
-		Protocol: store.ProtoVLESS, Port: 443, Tag: "01",
-		Handshake: DefaultHandshake})
+		Protocol: store.ProtoShadowsocks, Port: 8389, Tag: "01"})
 	if err != nil {
 		t.Fatalf("create chosen: %v", err)
 	}
@@ -45,11 +48,10 @@ func TestRenamingANodeRewritesOnlyDerivedTags(t *testing.T) {
 		tags[in.ID] = in.Tag
 	}
 	if tags[derived.ID] != "ss-osaka" {
-		t.Errorf("derived tag is %q, want ss-osaka", tags[derived.ID])
+		t.Errorf("first tag is %q, want ss-osaka", tags[derived.ID])
 	}
-	if tags[chosen.ID] != "01" {
-		t.Errorf("hand-typed tag became %q; it is not the panel's to rewrite",
-			tags[chosen.ID])
+	if tags[chosen.ID] != "ss-osaka-2" {
+		t.Errorf("second tag is %q, want ss-osaka-2", tags[chosen.ID])
 	}
 }
 
@@ -111,11 +113,15 @@ func TestRenamingIntoATagCollisionPicksAFreeTag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	// Someone already typed the tag the rename is about to want. Tags are
-	// globally unique because they address an inbound in a pushed config.
-	if _, err := svc.CreateInbound(nodeID, InboundSpec{
-		Protocol: store.ProtoAnyTLS, Port: 8443, Tag: "ss-osaka",
-		ServerName: "a.example.com"}); err != nil {
+	// A different node already holds the tag this rename is about to want.
+	// Tags are globally unique because they address an inbound in a pushed
+	// configuration, so the ones on other nodes are off limits.
+	other, _, err := svc.CreateNode("paris", "fr.example.com", "FR")
+	if err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	if _, err := svc.CreateInbound(other.ID, InboundSpec{
+		Protocol: store.ProtoShadowsocks, Port: 8388, Tag: "ss-osaka"}); err != nil {
 		t.Fatalf("create squatter: %v", err)
 	}
 

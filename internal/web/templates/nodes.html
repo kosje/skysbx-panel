@@ -74,7 +74,8 @@
             <p class="dim" style="margin:.6rem 0 0;font-size:.8rem">
               地址建议填<strong>域名</strong>而不是 IP —— 订阅里发给客户端的就是这个值，
               换服务器时改 DNS 就够了，不用重发订阅；AnyTLS 的证书也只对域名有效。
-              改名会同步改掉该节点上由它派生的入站 tag，订阅里的节点名跟着变。
+              改名会<strong>重新生成该节点所有入站的 tag</strong>（含手工取过名的），
+              订阅里显示的名字跟着变，节点会重启一次、连接断一次。
               接入 token 不在这里改 —— 那是「换 token」。
             </p>
           </td>

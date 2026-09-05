@@ -78,6 +78,59 @@ func (s *Store) queryInbounds(q string, args ...any) ([]*Inbound, error) {
 	return out, rows.Err()
 }
 
+// Retag is one inbound's new tag and the sing-box object carrying it. The tag
+// lives in both, and updating one without the other leaves the node listening
+// under a name no user list mentions.
+type Retag struct {
+	ID     int64
+	Tag    string
+	Config string
+}
+
+// RetagInbounds renames a set of inbounds at once.
+//
+// Two phases, because tags are globally unique and a rename can shuffle them
+// between rows: an inbound taking a tag its neighbour still holds would trip
+// the unique index even though the end state is perfectly valid. Everything
+// moves to a placeholder first. Both phases and the rollback are one
+// transaction, so a failure leaves every tag as it was.
+func (s *Store) RetagInbounds(updates []Retag) error {
+	if len(updates) == 0 {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for _, u := range updates {
+		if _, err := tx.Exec(`UPDATE inbounds SET tag = ? WHERE id = ?`,
+			fmt.Sprintf("retag-%d", u.ID), u.ID); err != nil {
+			return asConflict(fmt.Errorf("retag inbound %d: %w", u.ID, err))
+		}
+	}
+	for _, u := range updates {
+		res, err := tx.Exec(`UPDATE inbounds SET tag = ?, config = ? WHERE id = ?`,
+			u.Tag, u.Config, u.ID)
+		if err != nil {
+			return asConflict(fmt.Errorf("retag inbound %d to %s: %w", u.ID, u.Tag, err))
+		}
+		if rows, _ := res.RowsAffected(); rows == 0 {
+			return ErrNotFound
+		}
+	}
+	return tx.Commit()
+}
+
+// NodeInboundsByID is NodeInbounds in creation order rather than tag order.
+// Deriving tags from a node name has to be deterministic, and ordering by the
+// thing being rewritten is not.
+func (s *Store) NodeInboundsByID(nodeID int64) ([]*Inbound, error) {
+	return s.queryInbounds(
+		`SELECT `+inboundCols+` FROM inbounds WHERE node_id = ? ORDER BY id`, nodeID)
+}
+
 func (s *Store) UpdateInbound(in *Inbound) error {
 	res, err := s.db.Exec(`UPDATE inbounds SET
 		tag = ?, protocol = ?, port = ?, config = ?, client = ?, enabled = ?
