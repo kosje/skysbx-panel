@@ -32,7 +32,15 @@ func (s *Server) renderNodes(w http.ResponseWriter, r *http.Request, code int, n
 		counts[in.NodeID]++
 	}
 
-	data := map[string]any{"Nodes": nodes, "InboundCounts": counts, "NewToken": newToken}
+	// Connection state lives in the hub, not the database: last_seen_at records
+	// the last handshake, which says nothing about whether the channel is up now.
+	connected := map[int64]bool{}
+	for _, n := range nodes {
+		connected[n.ID] = s.nodes.Connected(n.ID)
+	}
+
+	data := map[string]any{"Nodes": nodes, "InboundCounts": counts,
+		"Connected": connected, "NewToken": newToken}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(code)

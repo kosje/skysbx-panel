@@ -38,9 +38,15 @@
   <h1>概览</h1>
   <div class="card stats">
     <div class="stat"><div class="n">{{.ActiveUsers}} <span class="dim" style="font-size:1rem">/ {{.Users}}</span></div><div class="k">在用用户 / 总数</div></div>
-    <div class="stat"><div class="n">{{.Nodes}}</div><div class="k">节点</div></div>
+    <div class="stat"><div class="n">{{.OnlineUsers}}</div><div class="k">当前在线</div></div>
+    <div class="stat"><div class="n">{{.NodesUp}} <span class="dim" style="font-size:1rem">/ {{.Nodes}}</span></div><div class="k">在线节点 / 总数</div></div>
     <div class="stat"><div class="n">{{.Inbounds}}</div><div class="k">入站</div></div>
     <div class="stat"><div class="n">{{bytes .Traffic}}</div><div class="k">累计流量</div></div>
+  </div>
+
+  <div class="card" style="margin-top:1rem">
+    <div class="k" style="margin-bottom:.5rem">近 14 天流量</div>
+    <div style="color:var(--accent)">{{.Chart}}</div>
   </div>
 </main>
 {{template "foot" .}}

@@ -26,7 +26,8 @@ func (s *Server) renderUsers(w http.ResponseWriter, r *http.Request, code int) {
 		s.fail(w, r, err)
 		return
 	}
-	data := map[string]any{"Users": users, "Now": nowFunc()}
+	data := map[string]any{"Users": users, "Now": nowFunc(),
+		"Online": s.nodes.OnlineUsers()}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(code)

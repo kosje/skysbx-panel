@@ -29,10 +29,11 @@ var assets embed.FS
 const settingSessionKey = "web.session_key"
 
 type Server struct {
-	svc  *service.Service
-	log  *slog.Logger
-	tpl  *template.Template
-	sess *sessions
+	svc   *service.Service
+	log   *slog.Logger
+	tpl   *template.Template
+	sess  *sessions
+	nodes NodeChannel
 
 	// secureCookies marks session cookies Secure. Off when serving plain HTTP
 	// on localhost, because a Secure cookie is simply dropped there and login
@@ -40,7 +41,17 @@ type Server struct {
 	secureCookies bool
 }
 
-func New(svc *service.Service, log *slog.Logger, secureCookies bool) (*Server, error) {
+// NodeChannel is the node control channel, mounted by the router. It is an
+// interface so that the web package does not depend on the hub, and — more to
+// the point — so that forgetting to pass one is a compile error rather than a
+// route that quietly 404s every node that dials in.
+type NodeChannel interface {
+	Handler() http.HandlerFunc
+	Connected(nodeID int64) bool
+	OnlineUsers() map[string]bool
+}
+
+func New(svc *service.Service, nodes NodeChannel, log *slog.Logger, secureCookies bool) (*Server, error) {
 	tpl, err := template.New("").Funcs(templateFuncs()).ParseFS(assets, "templates/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse templates: %w", err)
@@ -65,8 +76,11 @@ func New(svc *service.Service, log *slog.Logger, secureCookies bool) (*Server, e
 		}
 	}
 
-	return &Server{svc: svc, log: log, tpl: tpl, sess: newSessions(key),
-		secureCookies: secureCookies}, nil
+	if nodes == nil {
+		return nil, fmt.Errorf("a node channel is required")
+	}
+	return &Server{svc: svc, nodes: nodes, log: log, tpl: tpl,
+		sess: newSessions(key), secureCookies: secureCookies}, nil
 }
 
 func (s *Server) Handler() http.Handler {
@@ -82,6 +96,10 @@ func (s *Server) Handler() http.Handler {
 	// The token in the path is the credential; this is the one unauthenticated
 	// route that returns anything.
 	mux.HandleFunc("GET /sub/{token}", s.getSubscription)
+
+	// The node control channel. Nodes authenticate with their own bearer token,
+	// so this sits outside the session gate.
+	mux.HandleFunc("GET /api/v1/node/connect", s.nodes.Handler())
 
 	// Open routes.
 	mux.HandleFunc("GET /setup", s.getSetup)

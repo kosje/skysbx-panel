@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kosje/skysb-panel/internal/hub"
 	"github.com/kosje/skysb-panel/internal/service"
 	"github.com/kosje/skysb-panel/internal/store"
 	"github.com/kosje/skysb-panel/internal/web"
@@ -41,13 +42,19 @@ func main() {
 
 	svc := service.New(st)
 
+	// The hub holds the node control channel. Wiring it as the service's
+	// notifier is what turns an edit in the UI into a push to every node; without
+	// it the service quietly talks to a no-op and nothing ever reaches a node.
+	nodeHub := hub.New(svc, log)
+	svc.SetNotifier(nodeHub)
+
 	// A Secure cookie is discarded by the browser over plain HTTP, so binding
 	// to localhost for development implies insecure cookies. Anything else has
 	// to say so explicitly, which keeps the unsafe choice visible in the
 	// command line rather than inferred.
 	secureCookies := !*insecure && !isLoopback(*addr)
 
-	srv, err := web.New(svc, log, secureCookies)
+	srv, err := web.New(svc, nodeHub, log, secureCookies)
 	if err != nil {
 		log.Error("build web server", "error", err)
 		os.Exit(1)

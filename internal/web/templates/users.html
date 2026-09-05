@@ -44,6 +44,9 @@
           {{if .Active $.Now}}<span class="pill ok">正常</span>
           {{else if not .Enabled}}<span class="pill off">已停用</span>
           {{else}}<span class="pill bad">已失效</span>{{end}}
+          {{/* Reported by the nodes, not inferred from traffic: a user can be
+               well under their limit and simply not connected. */}}
+          {{if index $.Online .Name}}<span class="pill live">在线</span>{{end}}
         </td>
         <td class="dim">{{date .ExpiresAt}}</td>
         <td class="num">{{bytes .TrafficUsed}}</td>

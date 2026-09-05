@@ -44,6 +44,30 @@ type DailyUsage struct {
 	Down int64
 }
 
+// TotalTrafficByDay returns the last n days across every user and node, oldest
+// first. Days with no traffic are simply absent — the caller fills them in,
+// because a chart that closes up the gaps hides an outage.
+func (s *Store) TotalTrafficByDay(days int) ([]DailyUsage, error) {
+	rows, err := s.db.Query(`
+		SELECT day, sum(up), sum(down) FROM traffic
+		WHERE day > (unixepoch() / 86400) - ?
+		GROUP BY day ORDER BY day`, days)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []DailyUsage
+	for rows.Next() {
+		var d DailyUsage
+		if err := rows.Scan(&d.Day, &d.Up, &d.Down); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 // UserTrafficHistory returns the last n days for a user, most recent first,
 // summed across nodes.
 func (s *Store) UserTrafficHistory(userID int64, days int) ([]DailyUsage, error) {

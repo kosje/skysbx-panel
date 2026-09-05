@@ -21,7 +21,15 @@
 {{end}}
 
 {{define "node-table"}}
-<div id="nodes">
+{{/* Poll for connection state. A node can drop at any moment with nothing to
+     tell the browser about it, and a status that only updates on reload is
+     worse than none — it looks current when it is not.
+
+     Polling stops while a token is on screen: a swap would replace the only
+     copy of a secret that is shown once. */}}
+<div id="nodes"
+     {{if not .NewToken}}hx-get="/nodes" hx-trigger="every 10s"
+     hx-target="#nodes" hx-swap="outerHTML"{{end}}>
   {{if .NewToken}}
   <div class="token">
     <strong>接入 token —— 只显示这一次。</strong>只保存了它的哈希，关掉就找不回来了，
@@ -43,8 +51,13 @@
           <td>{{.Name}} <span class="dim">{{.Country}}</span></td>
           <td class="dim">{{.Address}}</td>
           <td>
+            {{/* Whether the control channel is up right now, which last_seen_at
+                 cannot answer — it records the last handshake, and a node that
+                 died a minute ago still has a recent one. */}}
             {{if not .Enabled}}<span class="pill off">已停用</span>
-            {{else if .LastSeenAt}}<span class="pill ok">{{ago .LastSeenAt}}</span>
+            {{else if index $.Connected .ID}}<span class="pill ok">在线</span>
+            {{else if .LastSeenAt}}<span class="pill bad">离线</span>
+              <div class="dim" style="font-size:.75rem">最后 {{ago .LastSeenAt}}</div>
             {{else}}<span class="pill off">从未接入</span>{{end}}
           </td>
           <td><a href="/nodes/{{.ID}}/inbounds">{{index $.InboundCounts .ID}} 个</a></td>

@@ -111,9 +111,24 @@ func (s *Server) getDashboard(w http.ResponseWriter, r *http.Request) {
 			active++
 		}
 	}
+	history, err := s.svc.TrafficHistory(14)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	online := s.nodes.OnlineUsers()
+	nodesUp := 0
+	for _, n := range nodes {
+		if s.nodes.Connected(n.ID) {
+			nodesUp++
+		}
+	}
+
 	s.page(w, "dashboard", map[string]any{
-		"Users": len(users), "ActiveUsers": active,
-		"Nodes": len(nodes), "Inbounds": len(inbounds),
+		"Users": len(users), "ActiveUsers": active, "OnlineUsers": len(online),
+		"Nodes": len(nodes), "NodesUp": nodesUp, "Inbounds": len(inbounds),
 		"Traffic": totalTraffic,
+		"Chart":   trafficChart(history),
 	})
 }
