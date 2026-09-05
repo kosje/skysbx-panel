@@ -2,6 +2,7 @@ package web
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,10 +15,25 @@ func (s *Server) listNodes(w http.ResponseWriter, r *http.Request) {
 	s.renderNodes(w, r, http.StatusOK, "")
 }
 
+// renderNodesEditing renders one row as a form, through the same path as the
+// plain list. The list polls itself every ten seconds, and a swap mid-edit
+// replaces half-typed input — which is what made the edit form appear to close
+// itself. Rendering the whole container is what lets the template turn the poll
+// off while the form is open.
+func (s *Server) renderNodesEditing(w http.ResponseWriter, r *http.Request, editID int64) {
+	s.renderNodesFull(w, r, http.StatusOK, "", editID)
+}
+
 // renderNodes takes an optional freshly minted join token. It is the one thing
 // on this page that cannot be re-read from the database — only its hash is
 // stored — so it is passed through and shown once.
 func (s *Server) renderNodes(w http.ResponseWriter, r *http.Request, code int, newToken string) {
+	s.renderNodesFull(w, r, code, newToken, 0)
+}
+
+func (s *Server) renderNodesFull(w http.ResponseWriter, r *http.Request, code int,
+	newToken string, editID int64,
+) {
 	nodes, err := s.svc.Nodes()
 	if err != nil {
 		s.fail(w, r, err)
@@ -40,13 +56,20 @@ func (s *Server) renderNodes(w http.ResponseWriter, r *http.Request, code int, n
 	// the operator asked for.
 	rejected := map[int64]bool{}
 	connected := map[int64]bool{}
+	// A bare IP in the address is legal and works, but it is what goes out in
+	// every subscription: moving the node then means reissuing all of them, and
+	// AnyTLS has no certificate that matches an address. Worth saying once, on
+	// the row, rather than leaving it to be discovered.
+	bareIP := map[int64]bool{}
 	for _, n := range nodes {
 		rejected[n.ID] = s.nodes.ApplyError(n.ID) != ""
 		connected[n.ID] = s.nodes.Connected(n.ID)
+		bareIP[n.ID] = net.ParseIP(strings.TrimSpace(n.Address)) != nil
 	}
 
 	data := map[string]any{"Nodes": nodes, "InboundCounts": counts,
-		"Connected": connected, "Rejected": rejected, "NewToken": newToken}
+		"Connected": connected, "Rejected": rejected, "NewToken": newToken,
+		"EditID": editID, "BareIP": bareIP}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(code)
@@ -74,13 +97,11 @@ func (s *Server) editNode(w http.ResponseWriter, r *http.Request) {
 		s.errorBanner(w, http.StatusBadRequest, "bad node id")
 		return
 	}
-	n, err := s.svc.Node(id)
-	if err != nil {
+	if _, err := s.svc.Node(id); err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	s.render(w, "node-edit-row", map[string]any{"Node": n})
+	s.renderNodesEditing(w, r, id)
 }
 
 // updateNode applies an edit. The join token is not a field: it is shown once
@@ -166,6 +187,16 @@ func (s *Server) listInbounds(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderInbounds(w http.ResponseWriter, r *http.Request, nodeID int64, code int) {
+	s.renderInboundsFull(w, r, nodeID, code, 0)
+}
+
+// renderInboundsFull with editID set renders one row as a form, through the
+// same path as the list. The list polls itself while a change is settling, and
+// a swap mid-edit replaces half-typed input — rendering the whole container is
+// what lets the template turn that poll off while the form is open.
+func (s *Server) renderInboundsFull(w http.ResponseWriter, r *http.Request,
+	nodeID int64, code int, editID int64,
+) {
 	node, err := s.svc.Node(nodeID)
 	if err != nil {
 		s.fail(w, r, err)
@@ -188,6 +219,11 @@ func (s *Server) renderInbounds(w http.ResponseWriter, r *http.Request, nodeID i
 
 	applyErr := s.nodes.ApplyError(nodeID)
 
+	settle := s.settle(r, nodeID, inbounds, tags, known, applyErr)
+	if editID != 0 {
+		settle = 0
+	}
+
 	data := map[string]any{"Node": node, "Inbounds": inbounds,
 		"Protocols":        []string{store.ProtoVLESS, store.ProtoAnyTLS, store.ProtoShadowsocks},
 		"DefaultHandshake": service.DefaultHandshake,
@@ -196,7 +232,15 @@ func (s *Server) renderInbounds(w http.ResponseWriter, r *http.Request, nodeID i
 		"StateKnown":       known,
 		"Live":             live,
 		"NodeError":        applyErr,
-		"Settle":           s.settle(r, nodeID, inbounds, tags, known, applyErr)}
+		"Settle":           settle,
+		"EditID":           editID}
+
+	if editID != 0 {
+		if err := s.inboundEditFields(data, inbounds, editID); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(code)
@@ -285,6 +329,47 @@ func (s *Server) createInbound(w http.ResponseWriter, r *http.Request) {
 	s.renderInbounds(w, r, nodeID, http.StatusCreated)
 }
 
+// inboundEditFields fills in the current values of the protocol-specific fields
+// for the row being edited, so the template can render them without knowing
+// which protocol uses which.
+func (s *Server) inboundEditFields(data map[string]any,
+	inbounds []*store.Inbound, editID int64,
+) error {
+	var in *store.Inbound
+	for _, candidate := range inbounds {
+		if candidate.ID == editID {
+			in = candidate
+			break
+		}
+	}
+	if in == nil {
+		return store.ErrNotFound
+	}
+
+	client, err := service.ParseClient(in)
+	if err != nil {
+		return err
+	}
+	sb, err := service.ParseConfig(in)
+	if err != nil {
+		return err
+	}
+
+	handshake, tls := service.InboundEditFields(in.Protocol)
+	data["EditHandshake"] = handshake
+	data["EditTLS"] = tls
+	data["SNI"] = client.SNI
+	if sb.TLS != nil {
+		data["CertPath"] = sb.TLS.CertificatePath
+		data["KeyPath"] = sb.TLS.KeyPath
+		if sb.TLS.Reality != nil {
+			data["HandshakeValue"] = fmt.Sprintf("%s:%d",
+				sb.TLS.Reality.Handshake.Server, sb.TLS.Reality.Handshake.ServerPort)
+		}
+	}
+	return nil
+}
+
 func (s *Server) editInbound(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -296,31 +381,7 @@ func (s *Server) editInbound(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	client, err := service.ParseClient(in)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	sb, err := service.ParseConfig(in)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-
-	handshake, tls := service.InboundEditFields(in.Protocol)
-	data := map[string]any{"In": in, "Handshake": handshake, "TLS": tls,
-		"SNI": client.SNI, "Cols": 5}
-	if sb.TLS != nil {
-		data["CertPath"] = sb.TLS.CertificatePath
-		data["KeyPath"] = sb.TLS.KeyPath
-	}
-	if sb.TLS != nil && sb.TLS.Reality != nil {
-		data["HandshakeValue"] = fmt.Sprintf("%s:%d",
-			sb.TLS.Reality.Handshake.Server, sb.TLS.Reality.Handshake.ServerPort)
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	s.render(w, "inbound-edit-row", data)
+	s.renderInboundsFull(w, r, in.NodeID, http.StatusOK, id)
 }
 
 func (s *Server) updateInbound(w http.ResponseWriter, r *http.Request) {

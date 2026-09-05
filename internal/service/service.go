@@ -220,7 +220,18 @@ func (s *Service) UpdateNode(n *store.Node) error {
 	if err := s.st.UpdateNode(n); err != nil {
 		return err
 	}
-	if prev.Enabled != n.Enabled {
+
+	// Tags derived from the old name follow it, so "ss-tokyo" does not outlive
+	// a node called tokyo. That rewrites the config the node runs, so it has to
+	// be pushed — and the user lists keyed by those tags go with it.
+	renamed := 0
+	if prev.Name != n.Name {
+		renamed, err = s.renameNodeInbounds(n.ID, prev.Name, n.Name)
+		if err != nil {
+			return err
+		}
+	}
+	if prev.Enabled != n.Enabled || renamed > 0 {
 		s.notify.ConfigChanged(n.ID)
 	}
 	// The address is what subscriptions point at, so an edit changes generated

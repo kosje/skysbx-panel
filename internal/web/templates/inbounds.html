@@ -52,45 +52,12 @@ onProto(document.querySelector('select[name=protocol]').value);
 {{template "foot" .}}
 {{end}}
 
-{{/* Protocol and tag are missing on purpose: the tag addresses this inbound in
-     the node's config and in every user list keyed by it, and the protocol
-     decides which credential a user authenticates with. Changing either is a
-     different inbound, not an edit. The generated keys are carried over, so
-     existing subscriptions keep working. */}}
-{{define "inbound-edit-row"}}
-<tr>
-  <td colspan="{{.Cols}}">
-    <form class="row" hx-post="/inbounds/{{.In.ID}}"
-          hx-target="#inbounds" hx-swap="outerHTML" style="align-items:flex-end">
-      <label>tag<input value="{{.In.Tag}}" disabled style="opacity:.5"></label>
-      <label>端口<input name="port" type="number" min="1" max="65535" required
-             value="{{.In.Port}}" style="min-width:6rem"></label>
-      {{if .Handshake}}
-        <label>Reality 握手站点
-          <input name="handshake" required value="{{.HandshakeValue}}"></label>
-      {{end}}
-      {{if .TLS}}
-        <label>SNI<input name="server_name" required value="{{.SNI}}"></label>
-        <label>证书路径（节点上）<input name="cert_path" value="{{.CertPath}}"></label>
-        <label>私钥路径（节点上）<input name="key_path" value="{{.KeyPath}}"></label>
-      {{end}}
-      <button>保存</button>
-      <button type="button" class="ghost" hx-get="/nodes/{{.In.NodeID}}/inbounds"
-              hx-target="#inbounds" hx-swap="outerHTML">取消</button>
-    </form>
-    <p class="dim" style="margin:.6rem 0 0;font-size:.8rem">
-      Reality 密钥对、short id、Shadowsocks 服务端 PSK 都会原样保留，
-      已发出去的订阅不会失效。改端口会重建监听，该节点上所有连接会断一次。
-    </p>
-  </td>
-</tr>
-{{end}}
-
 {{define "inbound-table"}}
 {{/* An inbound reaches the node asynchronously, so this table is rendered
      before the node can have applied it and every new row would read 未生效
      until someone reloaded. Ask again until the node's report catches up; the
-     server stops sending this attribute once there is a real answer. */}}
+     server stops sending this attribute once there is a real answer — and
+     while a row is being edited, because a swap replaces half-typed input. */}}
 <div class="card" id="inbounds"
   {{if .Settle}}hx-get="/nodes/{{.Node.ID}}/inbounds?settle={{.Settle}}"
      hx-trigger="load delay:800ms" hx-target="#inbounds" hx-swap="outerHTML"{{end}}>
@@ -110,6 +77,39 @@ onProto(document.querySelector('select[name=protocol]').value);
     <thead><tr><th>tag</th><th>协议</th><th class="num">端口</th><th>状态</th><th></th></tr></thead>
     <tbody>
     {{range .Inbounds}}
+      {{if eq $.EditID .ID}}
+      {{/* Protocol and tag are missing on purpose: the tag addresses this
+           inbound in the node's config and in every user list keyed by it, and
+           the protocol decides which credential a user authenticates with.
+           Changing either is a different inbound, not an edit. The generated
+           keys are carried over, so existing subscriptions keep working. */}}
+      <tr>
+        <td colspan="5">
+          <form class="row" hx-post="/inbounds/{{.ID}}"
+                hx-target="#inbounds" hx-swap="outerHTML" style="align-items:flex-end">
+            <label>tag<input value="{{.Tag}}" disabled style="opacity:.5"></label>
+            <label>端口<input name="port" type="number" min="1" max="65535" required
+                   value="{{.Port}}" style="min-width:6rem"></label>
+            {{if $.EditHandshake}}
+              <label>Reality 握手站点
+                <input name="handshake" required value="{{$.HandshakeValue}}"></label>
+            {{end}}
+            {{if $.EditTLS}}
+              <label>SNI<input name="server_name" required value="{{$.SNI}}"></label>
+              <label>证书路径（节点上）<input name="cert_path" value="{{$.CertPath}}"></label>
+              <label>私钥路径（节点上）<input name="key_path" value="{{$.KeyPath}}"></label>
+            {{end}}
+            <button>保存</button>
+            <button type="button" class="ghost" hx-get="/nodes/{{$.Node.ID}}/inbounds"
+                    hx-target="#inbounds" hx-swap="outerHTML">取消</button>
+          </form>
+          <p class="dim" style="margin:.6rem 0 0;font-size:.8rem">
+            Reality 密钥对、short id、Shadowsocks 服务端 PSK 都会原样保留，
+            已发出去的订阅不会失效。改端口会重建监听，该节点上所有连接会断一次。
+          </p>
+        </td>
+      </tr>
+      {{else}}
       <tr>
         <td>{{.Tag}}</td>
         <td class="dim">{{.Protocol}}</td>
@@ -125,7 +125,7 @@ onProto(document.querySelector('select[name=protocol]').value);
         </td>
         <td style="text-align:right;white-space:nowrap">
           <button class="ghost" hx-get="/inbounds/{{.ID}}/edit"
-                  hx-target="closest tr" hx-swap="outerHTML">编辑</button>
+                  hx-target="#inbounds" hx-swap="outerHTML">编辑</button>
           <button class="ghost" hx-post="/inbounds/{{.ID}}/toggle"
                   hx-target="#inbounds" hx-swap="outerHTML"
                   >{{if .Enabled}}停用{{else}}启用{{end}}</button>
@@ -134,6 +134,7 @@ onProto(document.querySelector('select[name=protocol]').value);
                   hx-confirm="删除 {{.Tag}}？连着它的客户端会断开，而且密钥不可恢复。">删除</button>
         </td>
       </tr>
+      {{end}}
     {{end}}
     </tbody>
   </table>

@@ -7,42 +7,21 @@
     <form class="row" hx-post="/nodes" hx-target="#nodes" hx-swap="outerHTML">
       <label>名称<input name="name" required placeholder="tokyo"
              pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,31}"></label>
-      <label>客户端连接地址<input name="address" required placeholder="jp.example.com"></label>
+      <label>客户端连接地址<input name="address" required placeholder="jp.example.com"
+             style="min-width:14rem"></label>
       <label>国家<input name="country" maxlength="2" placeholder="JP" style="min-width:5rem"></label>
       <button>新建</button>
     </form>
     <p class="dim" style="margin:.8rem 0 0;font-size:.85rem">
-      地址是<strong>客户端</strong>连的目标。面板不需要能连到节点 —— 是节点主动连面板。
+      地址是<strong>客户端</strong>连的目标，也是订阅里原样发出去的值。面板不需要能连到
+      节点 —— 是节点主动连面板。<br>
+      <strong>填域名而不是 IP</strong>：换服务器时改 DNS 就够了，不用重发订阅；
+      AnyTLS 的证书也只对域名有效。域名必须是 DNS-only（灰云），三个协议都不是 HTTP，套 CDN 会全失效。
     </p>
   </div>
   {{template "node-table" .}}
 </main>
 {{template "foot" .}}
-{{end}}
-
-{{/* The address is the one field worth editing often: it is what clients dial,
-     and getting it wrong is invisible in the panel because the node connects
-     outward regardless. */}}
-{{define "node-edit-row"}}
-<tr>
-  <td colspan="6">
-    <form class="row" hx-post="/nodes/{{.Node.ID}}"
-          hx-target="#nodes" hx-swap="outerHTML" style="align-items:flex-end">
-      <label>名称<input name="name" required value="{{.Node.Name}}"
-             pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,31}"></label>
-      <label>客户端连接地址<input name="address" required value="{{.Node.Address}}"></label>
-      <label>国家<input name="country" maxlength="2" value="{{.Node.Country}}"
-             style="min-width:5rem"></label>
-      <button>保存</button>
-      <button type="button" class="ghost" hx-get="/nodes"
-              hx-target="#nodes" hx-swap="outerHTML">取消</button>
-    </form>
-    <p class="dim" style="margin:.6rem 0 0;font-size:.8rem">
-      改地址或名称只影响订阅里生成的内容，节点不会重启、连接不会断。
-      接入 token 不在这里改 —— 那是「换 token」。
-    </p>
-  </td>
-</tr>
 {{end}}
 
 {{define "node-table"}}
@@ -51,9 +30,11 @@
      worse than none — it looks current when it is not.
 
      Polling stops while a token is on screen: a swap would replace the only
-     copy of a secret that is shown once. */}}
+     copy of a secret that is shown once. It stops for the same reason while a
+     row is being edited — a swap replaces half-typed input, which is what made
+     the edit form appear to close itself ten seconds after it opened. */}}
 <div id="nodes"
-     {{if not .NewToken}}hx-get="/nodes" hx-trigger="every 10s"
+     {{if and (not .NewToken) (not .EditID)}}hx-get="/nodes" hx-trigger="every 10s"
      hx-target="#nodes" hx-swap="outerHTML"{{end}}>
   {{if .NewToken}}
   <div class="token">
@@ -72,9 +53,43 @@
       </tr></thead>
       <tbody>
       {{range .Nodes}}
+        {{if eq $.EditID .ID}}
+        {{/* The address is the one field worth editing often: it is what
+             clients dial, and getting it wrong is invisible in the panel
+             because the node connects outward regardless. */}}
+        <tr>
+          <td colspan="6">
+            <form class="row" hx-post="/nodes/{{.ID}}"
+                  hx-target="#nodes" hx-swap="outerHTML" style="align-items:flex-end">
+              <label>名称<input name="name" required value="{{.Name}}"
+                     pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,31}"></label>
+              <label>客户端连接地址<input name="address" required value="{{.Address}}"
+                     style="min-width:16rem"></label>
+              <label>国家<input name="country" maxlength="2" value="{{.Country}}"
+                     style="min-width:5rem"></label>
+              <button>保存</button>
+              <button type="button" class="ghost" hx-get="/nodes"
+                      hx-target="#nodes" hx-swap="outerHTML">取消</button>
+            </form>
+            <p class="dim" style="margin:.6rem 0 0;font-size:.8rem">
+              地址建议填<strong>域名</strong>而不是 IP —— 订阅里发给客户端的就是这个值，
+              换服务器时改 DNS 就够了，不用重发订阅；AnyTLS 的证书也只对域名有效。
+              改名会同步改掉该节点上由它派生的入站 tag，订阅里的节点名跟着变。
+              接入 token 不在这里改 —— 那是「换 token」。
+            </p>
+          </td>
+        </tr>
+        {{else}}
         <tr>
           <td>{{.Name}} <span class="dim">{{.Country}}</span></td>
-          <td class="dim">{{.Address}}</td>
+          <td class="dim">
+            {{.Address}}
+            {{/* This value is what every subscription hands to a client. */}}
+            {{if index $.BareIP .ID}}
+              <div style="font-size:.75rem;color:var(--warn)"
+                   title="订阅里发给客户端的就是这个地址。填域名的话换服务器只需改 DNS，而且 AnyTLS 的证书只对域名有效。">
+                建议改为域名</div>{{end}}
+          </td>
           <td>
             {{/* Whether the control channel is up right now, which last_seen_at
                  cannot answer — it records the last handshake, and a node that
@@ -97,7 +112,7 @@
           <td><code class="mono">{{if .Version}}{{.Version}}{{else}}—{{end}}</code></td>
           <td style="text-align:right;white-space:nowrap">
             <button class="ghost" hx-get="/nodes/{{.ID}}/edit"
-                    hx-target="closest tr" hx-swap="outerHTML">编辑</button>
+                    hx-target="#nodes" hx-swap="outerHTML">编辑</button>
             <button class="ghost" hx-post="/nodes/{{.ID}}/toggle"
                     hx-target="#nodes" hx-swap="outerHTML"
                     {{if .Enabled}}hx-confirm="停用 {{.Name}}？该节点会停掉所有入站，连着它的客户端立即断开。"{{end}}
@@ -110,6 +125,7 @@
                     hx-confirm="删除 {{.Name}}？它的入站会一并删除。">删除</button>
           </td>
         </tr>
+        {{end}}
       {{end}}
       </tbody>
     </table>
