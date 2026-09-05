@@ -125,7 +125,7 @@ if [ "$ACTION" = uninstall ] || [ "$ACTION" = purge ]; then
         ok "$ROOT removed"
     else
         warn "$ROOT kept — it still holds files (the node's, or your own):"
-        ls -A "$ROOT" 2>/dev/null | sed 's/^/       /'
+        (ls -A "$ROOT" 2>/dev/null || true) | sed 's/^/       /'
     fi
 
     printf '\n%sskysbx panel removed.%s\n' "$GRN" "$RST"
@@ -174,7 +174,7 @@ for p in git dig; do
 done
 
 PUBLIC_IP=$(curl -fsS --max-time 10 https://api.ipify.org || echo "")
-RESOLVED=$(dig +short "$DOMAIN" A @1.1.1.1 | tail -1)
+RESOLVED=$( (dig +short "$DOMAIN" A @1.1.1.1 || true) | tail -1)
 if [ -z "$RESOLVED" ]; then
     die "$DOMAIN has no A record"
 elif [ -n "$PUBLIC_IP" ] && [ "$RESOLVED" != "$PUBLIC_IP" ]; then
