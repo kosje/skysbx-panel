@@ -1,0 +1,104 @@
+// Command panel runs the skysb control plane: admin UI, subscriptions and the
+// node control channel, backed by a single SQLite file.
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/kosje/skysb-panel/internal/service"
+	"github.com/kosje/skysb-panel/internal/store"
+	"github.com/kosje/skysb-panel/internal/web"
+)
+
+func main() {
+	var (
+		addr     = flag.String("addr", "127.0.0.1:8080", "address to listen on")
+		dbPath   = flag.String("db", "skysb.db", "path to the SQLite database")
+		logLevel = flag.String("log", "info", "log level: debug, info, warn, error")
+		insecure = flag.Bool("insecure-cookies", false,
+			"send session cookies without the Secure flag (plain HTTP; development only)")
+	)
+	flag.Parse()
+
+	log := newLogger(*logLevel)
+
+	st, err := store.Open(*dbPath)
+	if err != nil {
+		log.Error("open database", "path", *dbPath, "error", err)
+		os.Exit(1)
+	}
+	defer st.Close()
+	log.Info("database ready", "path", *dbPath)
+
+	svc := service.New(st)
+
+	// A Secure cookie is discarded by the browser over plain HTTP, so binding
+	// to localhost for development implies insecure cookies. Anything else has
+	// to say so explicitly, which keeps the unsafe choice visible in the
+	// command line rather than inferred.
+	secureCookies := !*insecure && !isLoopback(*addr)
+
+	srv, err := web.New(svc, log, secureCookies)
+	if err != nil {
+		log.Error("build web server", "error", err)
+		os.Exit(1)
+	}
+
+	if ok, _ := svc.AdminExists(); !ok {
+		log.Warn("no administrator configured; open the panel and finish setup",
+			"url", "http://"+*addr+"/setup")
+	}
+
+	httpSrv := &http.Server{
+		Addr:              *addr,
+		Handler:           srv.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		log.Info("listening", "addr", *addr, "secure_cookies", secureCookies)
+		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("listen", "error", err)
+			stop()
+		}
+	}()
+
+	<-ctx.Done()
+	log.Info("shutting down")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+		log.Warn("shutdown", "error", err)
+	}
+}
+
+func newLogger(level string) *slog.Logger {
+	var l slog.Level
+	if err := l.UnmarshalText([]byte(level)); err != nil {
+		l = slog.LevelInfo
+	}
+	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: l}))
+}
+
+func isLoopback(addr string) bool {
+	host := addr
+	if i := strings.LastIndex(addr, ":"); i >= 0 {
+		host = addr[:i]
+	}
+	host = strings.Trim(host, "[]")
+	return host == "127.0.0.1" || host == "localhost" || host == "::1" || host == ""
+}

@@ -22,7 +22,7 @@ func (s *Store) CreateInbound(in *Inbound) error {
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		in.NodeID, in.Tag, in.Protocol, in.Port, in.Config, in.Client, in.Enabled)
 	if err != nil {
-		return fmt.Errorf("create inbound %q: %w", in.Tag, err)
+		return asConflict(fmt.Errorf("create inbound %q: %w", in.Tag, err))
 	}
 	in.ID, _ = res.LastInsertId()
 	return nil
@@ -30,6 +30,14 @@ func (s *Store) CreateInbound(in *Inbound) error {
 
 func (s *Store) Inbound(id int64) (*Inbound, error) {
 	in, err := scanInbound(s.db.QueryRow(`SELECT `+inboundCols+` FROM inbounds WHERE id = ?`, id))
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	return in, err
+}
+
+func (s *Store) InboundByTag(tag string) (*Inbound, error) {
+	in, err := scanInbound(s.db.QueryRow(`SELECT `+inboundCols+` FROM inbounds WHERE tag = ?`, tag))
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -76,7 +84,7 @@ func (s *Store) UpdateInbound(in *Inbound) error {
 		WHERE id = ?`,
 		in.Tag, in.Protocol, in.Port, in.Config, in.Client, in.Enabled, in.ID)
 	if err != nil {
-		return fmt.Errorf("update inbound %d: %w", in.ID, err)
+		return asConflict(fmt.Errorf("update inbound %d: %w", in.ID, err))
 	}
 	if rows, _ := res.RowsAffected(); rows == 0 {
 		return ErrNotFound

@@ -1,0 +1,64 @@
+{{define "users"}}
+{{template "head" .}}
+{{template "nav" .}}
+<main>
+  <h1>用户</h1>
+  <div class="card">
+    <form class="row" hx-post="/users" hx-target="#users" hx-swap="outerHTML">
+      <label>名称<input name="name" required placeholder="alice"
+             pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,31}"></label>
+      <label>到期<input name="expires_at" type="date"></label>
+      <label>流量上限 GiB<input name="traffic_limit_gb" type="number" step="1" min="0"
+             placeholder="留空 = 不限"></label>
+      <label>备注<input name="note" placeholder="可选"></label>
+      <button>新建</button>
+    </form>
+  </div>
+  {{template "user-table" .}}
+</main>
+{{template "foot" .}}
+{{end}}
+
+{{define "user-table"}}
+<div class="card" id="users">
+  {{if not .Users}}
+    <p class="dim" style="margin:.5rem">还没有用户。</p>
+  {{else}}
+  <table>
+    <thead><tr>
+      <th>名称</th><th>状态</th><th>到期</th>
+      <th class="num">已用</th><th class="num">上限</th><th></th>
+    </tr></thead>
+    <tbody>
+    {{range .Users}}
+      <tr>
+        <td>{{.Name}}{{if .Note}}<div class="dim" style="font-size:.8rem">{{.Note}}</div>{{end}}</td>
+        <td>
+          {{if .Active $.Now}}<span class="pill ok">正常</span>
+          {{else if not .Enabled}}<span class="pill off">已停用</span>
+          {{else}}<span class="pill bad">已失效</span>{{end}}
+        </td>
+        <td class="dim">{{date .ExpiresAt}}</td>
+        <td class="num">{{bytes .TrafficUsed}}</td>
+        <td class="num dim">
+          {{if gt .TrafficLimit 0}}{{bytes .TrafficLimit}}
+            <div style="font-size:.75rem">{{pct .TrafficUsed .TrafficLimit}}</div>
+          {{else}}不限{{end}}
+        </td>
+        <td style="text-align:right;white-space:nowrap">
+          <button class="ghost" hx-post="/users/{{.ID}}/toggle"
+                  hx-target="#users" hx-swap="outerHTML">{{if .Enabled}}停用{{else}}启用{{end}}</button>
+          <button class="ghost" hx-post="/users/{{.ID}}/reset"
+                  hx-target="#users" hx-swap="outerHTML"
+                  hx-confirm="把 {{.Name}} 的已用流量清零？">清零</button>
+          <button class="ghost danger" hx-delete="/users/{{.ID}}"
+                  hx-target="#users" hx-swap="outerHTML"
+                  hx-confirm="删除 {{.Name}}？该用户的订阅会立即失效。">删除</button>
+        </td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{end}}
+</div>
+{{end}}

@@ -1,0 +1,67 @@
+{{define "nodes"}}
+{{template "head" .}}
+{{template "nav" .}}
+<main>
+  <h1>节点</h1>
+  <div class="card">
+    <form class="row" hx-post="/nodes" hx-target="#nodes" hx-swap="outerHTML">
+      <label>名称<input name="name" required placeholder="tokyo"
+             pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,31}"></label>
+      <label>客户端连接地址<input name="address" required placeholder="jp.example.com"></label>
+      <label>国家<input name="country" maxlength="2" placeholder="JP" style="min-width:5rem"></label>
+      <button>新建</button>
+    </form>
+    <p class="dim" style="margin:.8rem 0 0;font-size:.85rem">
+      地址是<strong>客户端</strong>连的目标。面板不需要能连到节点 —— 是节点主动连面板。
+    </p>
+  </div>
+  {{template "node-table" .}}
+</main>
+{{template "foot" .}}
+{{end}}
+
+{{define "node-table"}}
+<div id="nodes">
+  {{if .NewToken}}
+  <div class="token">
+    <strong>接入 token —— 只显示这一次。</strong>只保存了它的哈希，关掉就找不回来了，
+    只能重新生成。
+    <code>{{.NewToken}}</code>
+  </div>
+  {{end}}
+  <div class="card">
+    {{if not .Nodes}}
+      <p class="dim" style="margin:.5rem">还没有节点。</p>
+    {{else}}
+    <table>
+      <thead><tr>
+        <th>名称</th><th>地址</th><th>状态</th><th>入站</th><th>版本</th><th></th>
+      </tr></thead>
+      <tbody>
+      {{range .Nodes}}
+        <tr>
+          <td>{{.Name}} <span class="dim">{{.Country}}</span></td>
+          <td class="dim">{{.Address}}</td>
+          <td>
+            {{if not .Enabled}}<span class="pill off">已停用</span>
+            {{else if .LastSeenAt}}<span class="pill ok">{{ago .LastSeenAt}}</span>
+            {{else}}<span class="pill off">从未接入</span>{{end}}
+          </td>
+          <td><a href="/nodes/{{.ID}}/inbounds">{{index $.InboundCounts .ID}} 个</a></td>
+          <td><code class="mono">{{if .Version}}{{.Version}}{{else}}—{{end}}</code></td>
+          <td style="text-align:right;white-space:nowrap">
+            <button class="ghost" hx-post="/nodes/{{.ID}}/rotate"
+                    hx-target="#nodes" hx-swap="outerHTML"
+                    hx-confirm="重新生成 {{.Name}} 的 token？旧 token 立即失效，该节点会掉线直到你换上新的。">换 token</button>
+            <button class="ghost danger" hx-delete="/nodes/{{.ID}}"
+                    hx-target="#nodes" hx-swap="outerHTML"
+                    hx-confirm="删除 {{.Name}}？它的入站会一并删除。">删除</button>
+          </td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{end}}
+  </div>
+</div>
+{{end}}

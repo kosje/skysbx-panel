@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -218,5 +219,50 @@ func TestSettings(t *testing.T) {
 	}
 	if v, _ := s.Setting("k"); v != "v2" {
 		t.Fatalf("expected v2, got %q", v)
+	}
+}
+
+// A duplicate name has to be distinguishable from a real failure, or the UI can
+// only ever say "something went wrong" to a problem the operator can fix.
+func TestDuplicatesReportConflict(t *testing.T) {
+	s := openTemp(t)
+
+	u := &User{Name: "alice", VlessUUID: "u", Password: "p", SSPassword: "s",
+		SubToken: "t1", Enabled: true}
+	if err := s.CreateUser(u); err != nil {
+		t.Fatal(err)
+	}
+	dup := &User{Name: "alice", VlessUUID: "u2", Password: "p2", SSPassword: "s2",
+		SubToken: "t2", Enabled: true}
+	if err := s.CreateUser(dup); !errors.Is(err, ErrConflict) {
+		t.Fatalf("duplicate name should be ErrConflict, got %v", err)
+	}
+
+	// A duplicate subscription token matters more: it would hand one user's
+	// configs to another.
+	dup2 := &User{Name: "bob", VlessUUID: "u3", Password: "p3", SSPassword: "s3",
+		SubToken: "t1", Enabled: true}
+	if err := s.CreateUser(dup2); !errors.Is(err, ErrConflict) {
+		t.Fatalf("duplicate sub token should be ErrConflict, got %v", err)
+	}
+
+	n := &Node{Name: "tokyo", TokenHash: "h", Address: "a", Enabled: true}
+	if err := s.CreateNode(n); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateNode(&Node{Name: "tokyo", TokenHash: "h2", Address: "b",
+		Enabled: true}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("duplicate node name should be ErrConflict, got %v", err)
+	}
+
+	in := &Inbound{NodeID: n.ID, Tag: "vless", Protocol: ProtoVLESS, Port: 443,
+		Config: "{}", Client: "{}", Enabled: true}
+	if err := s.CreateInbound(in); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateInbound(&Inbound{NodeID: n.ID, Tag: "vless",
+		Protocol: ProtoVLESS, Port: 444, Config: "{}", Client: "{}",
+		Enabled: true}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("duplicate inbound tag should be ErrConflict, got %v", err)
 	}
 }

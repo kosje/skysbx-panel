@@ -41,7 +41,7 @@ func (s *Store) CreateUser(u *User) error {
 		u.Name, u.VlessUUID, u.Password, u.SSPassword, u.SubToken, u.Enabled,
 		expires, u.TrafficLimit, u.Note)
 	if err != nil {
-		return fmt.Errorf("create user %q: %w", u.Name, err)
+		return asConflict(fmt.Errorf("create user %q: %w", u.Name, err))
 	}
 	u.ID, _ = res.LastInsertId()
 	u.CreatedAt = time.Now().UTC()
@@ -96,7 +96,7 @@ func (s *Store) UpdateUser(u *User) error {
 		u.Name, u.VlessUUID, u.Password, u.SSPassword,
 		u.Enabled, expires, u.TrafficLimit, u.Note, u.ID)
 	if err != nil {
-		return fmt.Errorf("update user %d: %w", u.ID, err)
+		return asConflict(fmt.Errorf("update user %d: %w", u.ID, err))
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound

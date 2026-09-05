@@ -1,0 +1,47 @@
+{{define "setup"}}
+{{template "head" .}}
+<main class="center">
+  <h1>初始化</h1>
+  <p class="dim">还没有管理员。设置一个，这个页面之后就关闭了。</p>
+  <div class="card">
+    <form hx-post="/setup" hx-target="#err">
+      <label>用户名<input name="username" value="admin" required autofocus></label>
+      <label>密码<input name="password" type="password" required minlength="12"
+             placeholder="至少 12 个字符"></label>
+      <label>再输一次<input name="password2" type="password" required></label>
+      <button>创建</button>
+    </form>
+  </div>
+</main>
+{{template "foot" .}}
+{{end}}
+
+{{define "login"}}
+{{template "head" .}}
+<main class="center">
+  <h1>登录</h1>
+  <div class="card">
+    <form hx-post="/login" hx-target="#err">
+      <label>用户名<input name="username" required autofocus></label>
+      <label>密码<input name="password" type="password" required></label>
+      <button>登录</button>
+    </form>
+  </div>
+</main>
+{{template "foot" .}}
+{{end}}
+
+{{define "dashboard"}}
+{{template "head" .}}
+{{template "nav" .}}
+<main>
+  <h1>概览</h1>
+  <div class="card stats">
+    <div class="stat"><div class="n">{{.ActiveUsers}} <span class="dim" style="font-size:1rem">/ {{.Users}}</span></div><div class="k">在用用户 / 总数</div></div>
+    <div class="stat"><div class="n">{{.Nodes}}</div><div class="k">节点</div></div>
+    <div class="stat"><div class="n">{{.Inbounds}}</div><div class="k">入站</div></div>
+    <div class="stat"><div class="n">{{bytes .Traffic}}</div><div class="k">累计流量</div></div>
+  </div>
+</main>
+{{template "foot" .}}
+{{end}}

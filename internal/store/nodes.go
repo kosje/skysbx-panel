@@ -31,7 +31,7 @@ func (s *Store) CreateNode(n *Node) error {
 		VALUES (?, ?, ?, ?, ?, '', unixepoch())`,
 		n.Name, n.TokenHash, n.Address, n.Country, n.Enabled)
 	if err != nil {
-		return fmt.Errorf("create node %q: %w", n.Name, err)
+		return asConflict(fmt.Errorf("create node %q: %w", n.Name, err))
 	}
 	n.ID, _ = res.LastInsertId()
 	n.CreatedAt = time.Now().UTC()
@@ -87,7 +87,7 @@ func (s *Store) UpdateNode(n *Node) error {
 		name = ?, address = ?, country = ?, enabled = ? WHERE id = ?`,
 		n.Name, n.Address, n.Country, n.Enabled, n.ID)
 	if err != nil {
-		return fmt.Errorf("update node %d: %w", n.ID, err)
+		return asConflict(fmt.Errorf("update node %d: %w", n.ID, err))
 	}
 	if rows, _ := res.RowsAffected(); rows == 0 {
 		return ErrNotFound

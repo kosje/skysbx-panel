@@ -1,0 +1,80 @@
+{{define "inbounds"}}
+{{template "head" .}}
+{{template "nav" .}}
+<main>
+  <h1><a href="/nodes" class="dim">节点</a> / {{.Node.Name}} 的入站</h1>
+  <div class="card">
+    <form class="row" hx-post="/nodes/{{.Node.ID}}/inbounds"
+          hx-target="#inbounds" hx-swap="outerHTML">
+      <label>协议
+        <select name="protocol" onchange="onProto(this.value)">
+          {{range .Protocols}}<option value="{{.}}">{{.}}</option>{{end}}
+        </select>
+      </label>
+      <label>tag<input name="tag" required placeholder="vless-{{.Node.Name}}"
+             pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,31}"></label>
+      <label>端口<input name="port" type="number" min="1" max="65535" required
+             value="443" style="min-width:6rem"></label>
+
+      <label id="f-handshake">Reality 握手站点
+        <input name="handshake" value="{{.DefaultHandshake}}"></label>
+
+      <label id="f-cert" hidden>证书路径（节点上）
+        <input name="cert_path" placeholder="/opt/skysb/cert.pem"></label>
+      <label id="f-key" hidden>私钥路径（节点上）
+        <input name="key_path" placeholder="/opt/skysb/key.pem"></label>
+      <label id="f-sni" hidden>SNI
+        <input name="server_name" placeholder="{{.Node.Address}}"></label>
+
+      <button>新建</button>
+    </form>
+    <p class="dim" style="margin:.8rem 0 0;font-size:.85rem">
+      密钥、short id、Shadowsocks 的服务端 PSK 都是自动生成的。
+      三个协议里只有 <strong>AnyTLS 需要证书</strong> ——
+      Reality 用自己的密钥对认证，Shadowsocks 没有 TLS 层。
+    </p>
+  </div>
+  {{template "inbound-table" .}}
+</main>
+<script>
+function onProto(v) {
+  var show = function (id, on) { document.getElementById(id).hidden = !on; };
+  show('f-handshake', v === 'vless');
+  show('f-cert', v === 'anytls');
+  show('f-key',  v === 'anytls');
+  show('f-sni',  v === 'anytls');
+  var port = document.querySelector('input[name=port]');
+  port.value = v === 'vless' ? 443 : (v === 'anytls' ? 8443 : 8388);
+}
+onProto(document.querySelector('select[name=protocol]').value);
+</script>
+{{template "foot" .}}
+{{end}}
+
+{{define "inbound-table"}}
+<div class="card" id="inbounds">
+  {{if not .Inbounds}}
+    <p class="dim" style="margin:.5rem">这个节点还没有入站。</p>
+  {{else}}
+  <table>
+    <thead><tr><th>tag</th><th>协议</th><th class="num">端口</th><th>状态</th><th></th></tr></thead>
+    <tbody>
+    {{range .Inbounds}}
+      <tr>
+        <td>{{.Tag}}</td>
+        <td class="dim">{{.Protocol}}</td>
+        <td class="num">{{.Port}}</td>
+        <td>{{if .Enabled}}<span class="pill ok">启用</span>
+            {{else}}<span class="pill off">停用</span>{{end}}</td>
+        <td style="text-align:right">
+          <button class="ghost danger" hx-delete="/inbounds/{{.ID}}"
+                  hx-target="#inbounds" hx-swap="outerHTML"
+                  hx-confirm="删除 {{.Tag}}？连着它的客户端会断开，而且密钥不可恢复。">删除</button>
+        </td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{end}}
+</div>
+{{end}}
