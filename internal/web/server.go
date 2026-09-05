@@ -49,6 +49,14 @@ type NodeChannel interface {
 	Handler() http.HandlerFunc
 	Connected(nodeID int64) bool
 	OnlineUsers() map[string]bool
+
+	// LiveInbounds is the set of inbound tags the node says it is serving.
+	// known is false when it has not said — a disconnected node, or one that
+	// has not reported yet — which must not be shown as "everything is down".
+	LiveInbounds(nodeID int64) (tags map[string]bool, known bool)
+
+	// ApplyError is why the node is not running what it was last sent.
+	ApplyError(nodeID int64) string
 }
 
 func New(svc *service.Service, nodes NodeChannel, log *slog.Logger, secureCookies bool) (*Server, error) {

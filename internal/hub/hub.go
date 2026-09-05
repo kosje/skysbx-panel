@@ -64,6 +64,7 @@ type conn struct {
 
 	lastSeen atomic.Int64 // unix seconds, for pong tracking
 	online   atomic.Pointer[[]string]
+	state    atomic.Pointer[StateData]
 }
 
 // ── connection lifecycle ────────────────────────────────────────────────────
@@ -232,6 +233,18 @@ func (h *Hub) dispatch(ctx context.Context, c *conn, data []byte) error {
 		c.online.Store(&names)
 		return nil
 
+	case TypeState:
+		var st StateData
+		if err := json.Unmarshal(env.Data, &st); err != nil {
+			return fmt.Errorf("state: %w", err)
+		}
+		c.state.Store(&st)
+		if st.Error != "" {
+			h.log.Warn("node is not serving what it was sent",
+				"node", c.nodeID, "serving", st.Inbounds, "error", st.Error)
+		}
+		return nil
+
 	case TypePong:
 		return nil
 
@@ -387,6 +400,45 @@ func (h *Hub) OnlineUsers() map[string]bool {
 		}
 	}
 	return out
+}
+
+// LiveInbounds is the set of inbound tags a node says it is serving right now.
+//
+// known is false for a node that is disconnected or has not reported yet, which
+// is not the same as a node serving nothing: the panel says nothing at all in
+// that case rather than marking every inbound as down.
+//
+// Returned as primitives so the web package can state what it needs without
+// importing this one.
+func (h *Hub) LiveInbounds(nodeID int64) (tags map[string]bool, known bool) {
+	st := h.stateOf(nodeID)
+	if st == nil {
+		return nil, false
+	}
+	tags = make(map[string]bool, len(st.Inbounds))
+	for _, t := range st.Inbounds {
+		tags[t] = true
+	}
+	return tags, true
+}
+
+// ApplyError is why a node is not serving what it was last sent, or empty if it
+// is — or if it has not said.
+func (h *Hub) ApplyError(nodeID int64) string {
+	if st := h.stateOf(nodeID); st != nil {
+		return st.Error
+	}
+	return ""
+}
+
+func (h *Hub) stateOf(nodeID int64) *StateData {
+	h.mu.RLock()
+	c := h.conns[nodeID]
+	h.mu.RUnlock()
+	if c == nil {
+		return nil
+	}
+	return c.state.Load()
 }
 
 // Compile-time proof that the hub satisfies what the service expects. Without

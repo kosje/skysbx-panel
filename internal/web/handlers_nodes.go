@@ -34,13 +34,18 @@ func (s *Server) renderNodes(w http.ResponseWriter, r *http.Request, code int, n
 
 	// Connection state lives in the hub, not the database: last_seen_at records
 	// the last handshake, which says nothing about whether the channel is up now.
+	// Same reason for the rejected set: whether the node adopted what it was
+	// sent is state the database cannot hold, because the database holds what
+	// the operator asked for.
+	rejected := map[int64]bool{}
 	connected := map[int64]bool{}
 	for _, n := range nodes {
+		rejected[n.ID] = s.nodes.ApplyError(n.ID) != ""
 		connected[n.ID] = s.nodes.Connected(n.ID)
 	}
 
 	data := map[string]any{"Nodes": nodes, "InboundCounts": counts,
-		"Connected": connected, "NewToken": newToken}
+		"Connected": connected, "Rejected": rejected, "NewToken": newToken}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(code)
@@ -111,11 +116,24 @@ func (s *Server) renderInbounds(w http.ResponseWriter, r *http.Request, nodeID i
 		s.fail(w, r, err)
 		return
 	}
+	// What the node says it is actually serving, so an inbound the node
+	// rejected does not sit here looking enabled.
+	tags, known := s.nodes.LiveInbounds(nodeID)
+	live := map[int64]bool{}
+	if known {
+		for _, in := range inbounds {
+			live[in.ID] = tags[in.Tag]
+		}
+	}
+
 	data := map[string]any{"Node": node, "Inbounds": inbounds,
 		"Protocols":        []string{store.ProtoVLESS, store.ProtoAnyTLS, store.ProtoShadowsocks},
 		"DefaultHandshake": service.DefaultHandshake,
 		"DefaultCertPath":  service.DefaultCertPath,
-		"DefaultKeyPath":   service.DefaultKeyPath}
+		"DefaultKeyPath":   service.DefaultKeyPath,
+		"StateKnown":       known,
+		"Live":             live,
+		"NodeError":        s.nodes.ApplyError(nodeID)}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(code)

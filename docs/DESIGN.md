@@ -105,7 +105,7 @@ Authorization: Bearer <node-token>
 - `id` 关联 id。请求带 id，回应用同一个 id 回 `ok` / `error`
 - `d` 载荷
 
-单向通知（`stats`、`online`）不带 `id`。
+单向通知（`stats`、`online`、`state`）不带 `id`。
 
 ### 4.4 消息类型
 
@@ -117,7 +117,13 @@ Authorization: Bearer <node-token>
 | `ok` / `error` | 回应 panel 的指令 | `{id, msg?}` |
 | `stats` | 每 30s | 见 §7 |
 | `online` | 每 30s | `{users: ["alice", "bob"]}` |
+| `state` | 每次 apply 之后 | `{inbounds: ["ss-tokyo"], error?}` |
 | `pong` | 回应 ping | — |
+
+`error` 说的是「这条指令我没执行」，`state` 说的是「那我现在跑的是什么」。两者都需要：
+节点拒绝一份配置之后仍在跑上一份，面板这边入站照样显示「启用」（操作者确实是这么
+要求的），唯一的症状是客户端连不上那一个端口。`state.inbounds` 由节点直接给出，不
+从错误消息里反解 tag —— 那是猜的，而且 sing-box 改一次措辞就错。
 
 **panel → node**
 

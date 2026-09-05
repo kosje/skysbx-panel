@@ -21,6 +21,7 @@ const (
 	TypeError  = "error"
 	TypeStats  = "stats"
 	TypeOnline = "online"
+	TypeState  = "state"
 	TypePong   = "pong"
 
 	// panel -> node
@@ -95,6 +96,20 @@ type SystemStats struct {
 // OnlineData lists users with at least one live connection right now.
 type OnlineData struct {
 	Users []string `json:"users"`
+}
+
+// StateData is the node's own account of what it is serving, sent after every
+// attempt to apply a configuration.
+//
+// An error reply says the node refused a configuration; this says what it is
+// running instead. Both are needed. A node that rejects a configuration keeps
+// serving the previous one, so without this the panel would show an inbound as
+// enabled — the operator asked for it, after all — while the node has never
+// heard of it, and the only symptom would be users unable to connect to that
+// one port.
+type StateData struct {
+	Inbounds []string `json:"inbounds"`
+	Error    string   `json:"error,omitempty"`
 }
 
 func encode(t string, id uint64, data any) ([]byte, error) {

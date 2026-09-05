@@ -54,6 +54,15 @@ onProto(document.querySelector('select[name=protocol]').value);
 
 {{define "inbound-table"}}
 <div class="card" id="inbounds">
+  {{/* The node's own account of what it is running. Without it an inbound the
+       node refused sits here looking enabled, and the only symptom is clients
+       that cannot connect to that one port. */}}
+  {{if .NodeError}}
+    <div class="banner" style="margin:0 0 1rem">
+      节点没有采纳最近一次配置，仍在跑上一份：<br>
+      <code class="mono" style="color:#ffb4b6">{{.NodeError}}</code>
+    </div>
+  {{end}}
   {{if not .Inbounds}}
     <p class="dim" style="margin:.5rem">这个节点还没有入站。</p>
   {{else}}
@@ -66,7 +75,12 @@ onProto(document.querySelector('select[name=protocol]').value);
         <td class="dim">{{.Protocol}}</td>
         <td class="num">{{.Port}}</td>
         <td>{{if .Enabled}}<span class="pill ok">启用</span>
-            {{else}}<span class="pill off">停用</span>{{end}}</td>
+            {{else}}<span class="pill off">停用</span>{{end}}
+            {{if and $.StateKnown .Enabled}}
+              {{if index $.Live .ID}}<span class="pill live">已生效</span>
+              {{else}}<span class="pill bad">未生效</span>{{end}}
+            {{else if .Enabled}}<span class="pill off">节点离线</span>{{end}}
+        </td>
         <td style="text-align:right">
           <button class="ghost danger" hx-delete="/inbounds/{{.ID}}"
                   hx-target="#inbounds" hx-swap="outerHTML"

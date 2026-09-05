@@ -60,7 +60,15 @@
               <div class="dim" style="font-size:.75rem">最后 {{ago .LastSeenAt}}</div>
             {{else}}<span class="pill off">从未接入</span>{{end}}
           </td>
-          <td><a href="/nodes/{{.ID}}/inbounds">{{index $.InboundCounts .ID}} 个</a></td>
+          <td>
+            <a href="/nodes/{{.ID}}/inbounds">{{index $.InboundCounts .ID}} 个</a>
+            {{/* The node told us it refused the last configuration and is
+                 still on the previous one. Saying so here means the operator
+                 does not have to open the node to find out. */}}
+            {{if index $.Rejected .ID}}
+              <a href="/nodes/{{.ID}}/inbounds" class="pill bad"
+                 style="margin-left:.35rem">未生效</a>{{end}}
+          </td>
           <td><code class="mono">{{if .Version}}{{.Version}}{{else}}—{{end}}</code></td>
           <td style="text-align:right;white-space:nowrap">
             <button class="ghost" hx-post="/nodes/{{.ID}}/rotate"
