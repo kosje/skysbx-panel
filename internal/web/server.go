@@ -133,6 +133,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /users/{id}/access", s.auth(http.HandlerFunc(s.getUserAccess)))
 	mux.Handle("POST /users/{id}/access", s.auth(http.HandlerFunc(s.setUserAccess)))
 
+	mux.Handle("GET /policy", s.auth(http.HandlerFunc(s.getPolicy)))
+	mux.Handle("POST /policy", s.auth(http.HandlerFunc(s.setPolicy)))
+
 	mux.Handle("GET /nodes", s.auth(http.HandlerFunc(s.listNodes)))
 	mux.Handle("POST /nodes", s.auth(http.HandlerFunc(s.createNode)))
 	mux.Handle("GET /nodes/{id}/edit", s.auth(http.HandlerFunc(s.editNode)))

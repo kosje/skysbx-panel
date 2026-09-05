@@ -1,0 +1,76 @@
+{{define "policy"}}
+{{template "head" .}}
+{{template "nav" .}}
+<main>
+  <h1>使用限制</h1>
+  <div id="policy">{{template "policy-form" .}}</div>
+</main>
+{{template "foot" .}}
+{{end}}
+
+{{define "policy-form"}}
+<form hx-post="/policy" hx-target="#policy" hx-swap="innerHTML"
+      hx-confirm="保存会给所有节点推一份新配置，监听器会重建、现有连接会断一次。继续？">
+  {{if .Saved}}
+    <div class="card" style="border-color:rgba(62,207,142,.4)">
+      <span class="pill ok">{{.Saved}}</span>
+    </div>
+  {{end}}
+
+  <div class="card">
+    <label style="flex-direction:row;align-items:center;gap:.6rem;color:var(--fg)">
+      <input type="checkbox" name="block_bittorrent" value="1"
+             style="min-width:auto;width:1rem;height:1rem"
+             {{if .Policy.BlockBitTorrent}}checked{{end}}>
+      <span>禁止 BT / PT</span>
+    </label>
+    {{/* Said plainly because the alternative is an operator who thinks this is
+         a wall and finds out otherwise from their bandwidth bill. */}}
+    <p class="dim" style="margin:.6rem 0 0;font-size:.8rem">
+      <strong>这不是一堵墙，要知道它拦得住什么：</strong><br>
+      · <strong>拦得住</strong>：明文 BT 握手、uTP（BT 的 UDP 传输，即使载荷加密，帧头也是明文）、UDP tracker announce —— 也就是大部分流量和全部的 peer 发现。<br>
+      · <strong>拦不住</strong>：走 TCP 的加密 BT（MSE，多数客户端的默认）。它的头几个字节是随机的，嗅探认不出来。<br>
+      实际效果是让 BT 很难用，不是让它不能用。真要确认某个用户在跑 BT，看
+      <a href="/users">用户</a>页里的活动记录 —— 连接形态比协议特征诚实。
+    </p>
+  </div>
+
+  <div class="card">
+    <label style="flex-direction:row;align-items:center;gap:.6rem;color:var(--fg)">
+      <input type="checkbox" name="block_speedtest" value="1"
+             style="min-width:auto;width:1rem;height:1rem"
+             {{if .Policy.BlockSpeedtest}}checked{{end}}>
+      <span>禁止测速站点</span>
+    </label>
+    <p class="dim" style="margin:.6rem 0 0;font-size:.8rem">
+      按域名后缀拦，一共 {{len .Speedtests}} 条：
+      <code class="mono">{{range $i, $d := .Speedtests}}{{if $i}} · {{end}}{{$d}}{{end}}</code>
+    </p>
+  </div>
+
+  <div class="card">
+    <label>自定义域名黑名单（每行一个，后缀匹配）
+      <textarea name="blocked_domains" rows="8"
+                style="width:100%;background:#0c0e12;color:var(--fg);border:1px solid var(--line);
+                       border-radius:6px;padding:.5rem;font:13px ui-monospace,Menlo,monospace"
+                placeholder="emby.example.org&#10;pt.example.net">{{.Domains}}</textarea>
+    </label>
+    <p class="dim" style="margin:.6rem 0 0;font-size:.8rem">
+      写 <code>example.com</code> 会连同 <code>a.b.example.com</code> 一起拦掉。
+      协议头、前导 <code>*.</code>、路径都会被自动去掉。<br>
+      Emby、各类公益服这类站点没有内置列表 —— 它们的域名只有你知道，而我猜一个列表出来
+      只会拦错东西。填在这里。
+    </p>
+  </div>
+
+  <div class="card">
+    <button>保存并推送</button>
+    <p class="dim" style="margin:.8rem 0 0;font-size:.8rem">
+      限制对<strong>所有节点、所有用户</strong>生效。开启任何一项都意味着节点会嗅探每条
+      连接的头几个字节来判断协议和域名 —— 这是按域名/协议拦截的前提，没有别的办法。<br>
+      <strong>「大流量下载」没有开关。</strong>那不是一种协议，是一个用量；能管住它的是
+      用户的<strong>流量上限</strong>和<strong>同时在线 IP</strong>，两个都在<a href="/users">用户</a>页。
+    </p>
+  </div>
+</form>
+{{end}}

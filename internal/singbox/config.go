@@ -17,7 +17,39 @@ type Config struct {
 	Log          *Log          `json:"log,omitempty"`
 	Inbounds     []Inbound     `json:"inbounds"`
 	Outbounds    []Outbound    `json:"outbounds"`
+	Route        *ServerRoute  `json:"route,omitempty"`
 	Experimental *Experimental `json:"experimental,omitempty"`
+}
+
+// ServerRoute is what the node does with a connection once it has been
+// authenticated. Absent means everything goes out, which is what a node with no
+// policy configured gets.
+//
+// Named apart from the client's Route in client.go on purpose: they serialise
+// to the same key in two different documents and mean opposite things. One
+// picks which outbound a client should use; this one decides what a server
+// refuses to carry.
+type ServerRoute struct {
+	Rules []ServerRouteRule `json:"rules,omitempty"`
+}
+
+// ServerRouteRule matches a connection and says what to do with it. The fields
+// are a subset of sing-box's: the ones a policy expressed in the panel can
+// produce.
+//
+// An empty matcher matches everything, which is how the sniffing rule is
+// written — it has to run before any rule that matches on what was sniffed.
+type ServerRouteRule struct {
+	Protocol      []string `json:"protocol,omitempty"`
+	Domain        []string `json:"domain,omitempty"`
+	DomainSuffix  []string `json:"domain_suffix,omitempty"`
+	DomainKeyword []string `json:"domain_keyword,omitempty"`
+	Port          []int    `json:"port,omitempty"`
+	Network       []string `json:"network,omitempty"`
+
+	Action  string   `json:"action"`
+	Sniffer []string `json:"sniffer,omitempty"`
+	Timeout string   `json:"timeout,omitempty"`
 }
 
 type Log struct {

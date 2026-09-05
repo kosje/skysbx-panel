@@ -37,10 +37,23 @@ func (s *Service) NodeConfig(nodeID int64) (*singbox.Config, error) {
 		inbounds = nil
 	}
 
+	// What this node refuses to carry. Part of the configuration rather than
+	// the user list because it is a property of the node's routing, not of who
+	// is connected.
+	policy, err := s.Policy()
+	if err != nil {
+		return nil, err
+	}
+	var route *singbox.ServerRoute
+	if rules := policy.routeRules(); len(rules) > 0 {
+		route = &singbox.ServerRoute{Rules: rules}
+	}
+
 	cfg := &singbox.Config{
 		Log:       &singbox.Log{Level: "warn", Timestamp: true},
 		Inbounds:  make([]singbox.Inbound, 0, len(inbounds)),
 		Outbounds: []singbox.Outbound{{Type: "direct", Tag: "direct"}},
+		Route:     route,
 		Experimental: &singbox.Experimental{
 			ClashAPI: &singbox.ClashAPI{ExternalController: clashAPIAddr},
 			V2RayAPI: &singbox.V2RayAPI{

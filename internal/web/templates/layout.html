@@ -77,6 +77,7 @@ code.mono{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim)
     <a href="/"      class="{{if eq .Page "dashboard"}}on{{end}}">概览</a>
     <a href="/users" class="{{if eq .Page "users"}}on{{end}}">用户</a>
     <a href="/nodes" class="{{if eq .Page "nodes"}}on{{end}}">节点</a>
+    <a href="/policy" class="{{if eq .Page "policy"}}on{{end}}">限制</a>
   </nav>
   <form hx-post="/logout"><button class="ghost">退出</button></form>
 </header>
