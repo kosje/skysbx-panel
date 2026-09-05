@@ -26,7 +26,7 @@
   {{else}}
   <table>
     <thead><tr>
-      <th>名称</th><th>状态</th><th>到期</th>
+      <th>名称</th><th>状态</th><th>可用协议</th><th>到期</th>
       <th class="num">已用</th><th class="num">上限</th><th></th>
     </tr></thead>
     <tbody>
@@ -47,6 +47,11 @@
           {{/* Reported by the nodes, not inferred from traffic: a user can be
                well under their limit and simply not connected. */}}
           {{if index $.Online .Name}}<span class="pill live">在线</span>{{end}}
+        </td>
+        <td>
+          {{$n := index $.Access .ID}}
+          <a href="/users/{{.ID}}/access">
+            {{if lt $n 0}}全部{{else}}{{$n}} / {{$.InboundCount}}{{end}}</a>
         </td>
         <td class="dim">{{date .ExpiresAt}}</td>
         <td class="num">{{bytes .TrafficUsed}}</td>

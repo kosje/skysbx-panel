@@ -131,6 +131,29 @@ func (s *Service) DeleteUser(id int64) error {
 	return nil
 }
 
+// UserInboundIDs is the set of inbounds this user may use. Empty means every
+// inbound — the common case, and the reason the restriction is stored as rows
+// that exist rather than as a flag.
+func (s *Service) UserInboundIDs(id int64) ([]int64, error) {
+	return s.st.UserInboundIDs(id)
+}
+
+// SetUserInbounds replaces that set. Passing none removes the restriction
+// entirely rather than leaving the user with access to nothing, which is what
+// clearing every checkbox in a UI means.
+func (s *Service) SetUserInbounds(id int64, inboundIDs []int64) error {
+	if _, err := s.st.User(id); err != nil {
+		return err
+	}
+	if err := s.st.SetUserInbounds(id, inboundIDs); err != nil {
+		return err
+	}
+	// The node's user lists are per inbound, so this changes what it must hold
+	// even though no user record moved.
+	s.notify.UsersChanged()
+	return nil
+}
+
 func (s *Service) ResetUserTraffic(id int64) error {
 	if err := s.st.ResetUserTraffic(id); err != nil {
 		return err

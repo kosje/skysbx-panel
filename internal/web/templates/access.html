@@ -1,0 +1,62 @@
+{{define "access"}}
+{{template "head" .}}
+{{template "nav" .}}
+<main>
+  <h1><a href="/users" class="dim">用户</a> / {{.User.Name}} 可用的协议</h1>
+  <div id="access">{{template "access-form" .}}</div>
+</main>
+{{template "foot" .}}
+{{end}}
+
+{{define "access-form"}}
+<form hx-post="/users/{{.User.ID}}/access" hx-target="#access" hx-swap="innerHTML">
+  {{if not .Groups}}
+    <div class="card"><p class="dim" style="margin:.5rem">
+      还没有任何入站。先到<a href="/nodes">节点</a>里建几个。
+    </p></div>
+  {{else}}
+    {{range .Groups}}
+    <div class="card">
+      <div style="display:flex;align-items:baseline;gap:.6rem;margin-bottom:.6rem">
+        <strong>{{.Node.Name}}</strong>
+        <span class="dim" style="font-size:.8rem">{{.Node.Address}}</span>
+        <span class="dim" style="font-size:.8rem;margin-left:auto">
+          已选 {{.Chosen}} / {{len .Rows}}</span>
+      </div>
+      <table>
+        <tbody>
+        {{range .Rows}}
+          <tr>
+            <td style="width:2.5rem">
+              <input type="checkbox" name="inbound" value="{{.Inbound.ID}}"
+                     style="min-width:auto;width:1rem;height:1rem"
+                     {{if .Allowed}}checked{{end}}>
+            </td>
+            <td>{{.Inbound.Tag}}</td>
+            <td class="dim">{{.Inbound.Protocol}}</td>
+            <td class="num dim">{{.Inbound.Port}}</td>
+            <td style="text-align:right">
+              {{if not .Inbound.Enabled}}<span class="pill off">已停用</span>{{end}}
+            </td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{end}}
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:1rem">
+        <button>保存</button>
+        <span class="dim" style="font-size:.85rem">
+          {{if .Unrestricted}}当前是<strong>全部可用</strong>：以后新建的入站会自动对该用户开放。
+          {{else}}当前是<strong>按勾选限制</strong>：以后新建的入站默认<strong>不</strong>对该用户开放。
+          {{end}}
+        </span>
+      </div>
+      <p class="dim" style="margin:.8rem 0 0;font-size:.8rem">
+        全部勾选＝不加限制，改动几秒内推到节点，不会断开其它入站上的连接。
+      </p>
+    </div>
+  {{end}}
+</form>
+{{end}}

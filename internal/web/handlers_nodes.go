@@ -113,7 +113,9 @@ func (s *Server) renderInbounds(w http.ResponseWriter, r *http.Request, nodeID i
 	}
 	data := map[string]any{"Node": node, "Inbounds": inbounds,
 		"Protocols":        []string{store.ProtoVLESS, store.ProtoAnyTLS, store.ProtoShadowsocks},
-		"DefaultHandshake": service.DefaultHandshake}
+		"DefaultHandshake": service.DefaultHandshake,
+		"DefaultCertPath":  service.DefaultCertPath,
+		"DefaultKeyPath":   service.DefaultKeyPath}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(code)

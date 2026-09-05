@@ -25,10 +25,14 @@ func ShareLinks(entries []Entry) []string {
 }
 
 // Base64 renders the links as the single base64 blob most clients expect from a
-// subscription URL.
-func Base64(entries []Entry) string {
-	joined := strings.Join(ShareLinks(entries), "\n")
-	return base64.StdEncoding.EncodeToString([]byte(joined))
+// subscription URL, with any notice entries after the real servers.
+//
+// After, not before: a client importing a fresh subscription may make the first
+// entry the current one, and that should be somewhere that carries traffic. A
+// list this short is read whole anyway.
+func Base64(entries []Entry, notices []string) string {
+	lines := append(ShareLinks(entries), notices...)
+	return base64.StdEncoding.EncodeToString([]byte(strings.Join(lines, "\n")))
 }
 
 func shareLink(e Entry) string {

@@ -59,6 +59,15 @@ const SSMethod = "2022-blake3-aes-256-gcm"
 // DefaultHandshake is a site that reliably speaks TLS 1.3 + H2.
 const DefaultHandshake = "www.microsoft.com:443"
 
+// Where install-node.sh writes the certificate it obtains, and where its certbot
+// deploy hook copies each renewal to. AnyTLS inbounds default to these so the
+// common case needs no typing; a node keeping its certificate elsewhere can
+// still say where.
+const (
+	DefaultCertPath = "/opt/skysbx/cert.pem"
+	DefaultKeyPath  = "/opt/skysbx/key.pem"
+)
+
 // FlowVision is the only VLESS flow this panel emits. It has to be identical in
 // the inbound's client parameters and in every user pushed to that inbound: a
 // mismatch is rejected at handshake time as "flow mismatch", which reads like a
@@ -106,8 +115,14 @@ func BuildInbound(spec InboundSpec) (*store.Inbound, error) {
 			Flow: FlowVision}
 
 	case store.ProtoAnyTLS:
-		if spec.CertPath == "" || spec.KeyPath == "" {
-			return nil, invalid("anytls needs a certificate and key path on the node")
+		// Blank means "wherever the installer put it". Refusing instead would
+		// make the field look mandatory when the answer is the same on every
+		// node the installer touched.
+		if spec.CertPath == "" {
+			spec.CertPath = DefaultCertPath
+		}
+		if spec.KeyPath == "" {
+			spec.KeyPath = DefaultKeyPath
 		}
 		if spec.ServerName == "" {
 			return nil, invalid("anytls needs a server name")

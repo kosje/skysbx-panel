@@ -43,11 +43,15 @@ func (s *Server) getSubscription(w http.ResponseWriter, r *http.Request) {
 	// Announce where to refresh from, and how often, in the two headers the
 	// major clients honour.
 	w.Header().Set("Profile-Update-Interval", "12")
+	w.Header().Set("Profile-Title", sub.ProfileTitle(sb.User.Name))
 	w.Header().Set("Content-Type", sub.ContentType(format))
+
+	notices := sub.InfoLinks(sb.User.TrafficUsed, sb.User.TrafficLimit,
+		sb.User.ExpiresAt, nowFunc())
 
 	switch format {
 	case sub.FormatHTML:
-		s.subscriptionPage(w, r, sb, entries)
+		s.subscriptionPage(w, r, sb, entries, notices)
 
 	case sub.FormatSingBox:
 		data, err := sub.SingBox(entries)
@@ -66,12 +70,12 @@ func (s *Server) getSubscription(w http.ResponseWriter, r *http.Request) {
 		w.Write(data)
 
 	default:
-		w.Write([]byte(sub.Base64(entries)))
+		w.Write([]byte(sub.Base64(entries, notices)))
 	}
 }
 
 func (s *Server) subscriptionPage(w http.ResponseWriter, r *http.Request,
-	sb *service.Subscription, entries []sub.Entry,
+	sb *service.Subscription, entries []sub.Entry, notices []string,
 ) {
 	links := sub.ShareLinks(entries)
 	rows := make([]map[string]any, 0, len(entries))
@@ -95,7 +99,7 @@ func (s *Server) subscriptionPage(w http.ResponseWriter, r *http.Request,
 		"Used":     sb.User.TrafficUsed,
 		"Limit":    sb.User.TrafficLimit,
 		"SubURL":   subURL(r),
-		"Base64":   sub.Base64(entries),
+		"Base64":   sub.Base64(entries, notices),
 		"Inactive": len(entries) == 0,
 	})
 }

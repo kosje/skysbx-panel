@@ -19,10 +19,10 @@
       <label id="f-handshake">Reality 握手站点
         <input name="handshake" value="{{.DefaultHandshake}}"></label>
 
-      <label id="f-cert" hidden>证书路径（节点上）
-        <input name="cert_path" placeholder="/opt/skysbx/cert.pem"></label>
-      <label id="f-key" hidden>私钥路径（节点上）
-        <input name="key_path" placeholder="/opt/skysbx/key.pem"></label>
+      <label id="f-cert" hidden>证书路径（节点上，留空即默认）
+        <input name="cert_path" placeholder="{{.DefaultCertPath}}"></label>
+      <label id="f-key" hidden>私钥路径（节点上，留空即默认）
+        <input name="key_path" placeholder="{{.DefaultKeyPath}}"></label>
       <label id="f-sni" hidden>SNI
         <input name="server_name" placeholder="{{.Node.Address}}"></label>
 
@@ -32,6 +32,7 @@
       密钥、short id、Shadowsocks 的服务端 PSK 都是自动生成的。
       三个协议里只有 <strong>AnyTLS 需要证书</strong> ——
       Reality 用自己的密钥对认证，Shadowsocks 没有 TLS 层。
+      证书路径留空就用安装脚本写入的位置（<code>{{.DefaultCertPath}}</code>）。
     </p>
   </div>
   {{template "inbound-table" .}}

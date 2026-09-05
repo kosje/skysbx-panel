@@ -26,8 +26,30 @@ func (s *Server) renderUsers(w http.ResponseWriter, r *http.Request, code int) {
 		s.fail(w, r, err)
 		return
 	}
+	// How many inbounds each user may use, so the list can say "全部" or "2/5"
+	// without a query per row.
+	inbounds, err := s.svc.Inbounds()
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	restrictions, err := s.svc.Store().UserInboundMap()
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	access := make(map[int64]int, len(users))
+	for _, u := range users {
+		if allowed, restricted := restrictions[u.ID]; restricted {
+			access[u.ID] = len(allowed)
+		} else {
+			access[u.ID] = -1 // unrestricted
+		}
+	}
+
 	data := map[string]any{"Users": users, "Now": nowFunc(),
-		"Online": s.nodes.OnlineUsers()}
+		"Online": s.nodes.OnlineUsers(),
+		"Access": access, "InboundCount": len(inbounds)}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(code)

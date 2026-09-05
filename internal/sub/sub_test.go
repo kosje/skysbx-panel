@@ -218,12 +218,57 @@ func TestBase64Decodes(t *testing.T) {
 	u, nodes, inbounds := fixture(t)
 	entries, _ := Build(u, nodes, inbounds, nil)
 
-	raw, err := base64.StdEncoding.DecodeString(Base64(entries))
+	raw, err := base64.StdEncoding.DecodeString(Base64(entries, nil))
 	if err != nil {
 		t.Fatalf("not valid base64: %v", err)
 	}
 	if n := len(strings.Split(strings.TrimSpace(string(raw)), "\n")); n != 3 {
 		t.Fatalf("decoded to %d lines, want 3", n)
+	}
+}
+
+// The notice entries carry usage and expiry in their names, for the clients
+// that put a server list in front of the user and the header nowhere.
+func TestNoticesAreAppendedNotPrepended(t *testing.T) {
+	u, nodes, inbounds := fixture(t)
+	entries, _ := Build(u, nodes, inbounds, nil)
+
+	// Stored the way the panel stores an expiry: the last second of a day in
+	// the operator's own timezone. Formatting that in UTC would show the day
+	// after for anyone east of Greenwich, and the panel's own list would then
+	// disagree with the client.
+	expires := time.Date(2026, 12, 31, 23, 59, 59, 0, time.Local)
+	now := time.Date(2026, 12, 1, 23, 59, 59, 0, time.Local)
+	notices := InfoLinks(3<<30, 10<<30, &expires, now)
+	if len(notices) != 2 {
+		t.Fatalf("got %d notices, want one for traffic and one for expiry", len(notices))
+	}
+
+	raw, err := base64.StdEncoding.DecodeString(Base64(entries, notices))
+	if err != nil {
+		t.Fatalf("not valid base64: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) != 5 {
+		t.Fatalf("got %d lines, want 3 servers + 2 notices", len(lines))
+	}
+	// A client that makes the first entry current must land on a real server.
+	if strings.Contains(lines[0], infoAddress) {
+		t.Error("a notice is first in the list")
+	}
+	for _, want := range []string{"3.00 GiB", "10.00 GiB", "2026-12-31", "剩 30 天"} {
+		if !strings.Contains(strings.Join(notices, "\n"), url.QueryEscape(want)) &&
+			!strings.Contains(strings.Join(notices, "\n"), frag(want)) {
+			t.Errorf("notices do not mention %q", want)
+		}
+	}
+}
+
+// No limit and no expiry means nothing worth saying, and two lines reading
+// "unlimited" would just be noise in the server list.
+func TestNoNoticesForAnUnlimitedUser(t *testing.T) {
+	if n := InfoLinks(0, 0, nil, time.Now()); len(n) != 0 {
+		t.Errorf("got %d notices for an unlimited user, want none", len(n))
 	}
 }
 
@@ -476,6 +521,12 @@ func TestSingBoxDNSUsesTheCurrentServerFormat(t *testing.T) {
 	}
 	if cfg.DNS.Final == "" {
 		t.Error("dns.final is unset, so the fallback is whatever comes first")
+	}
+	for _, s := range cfg.DNS.Servers {
+		if s["detour"] == tagDirect {
+			t.Errorf("DNS server %v detours to the empty direct outbound, "+
+				"which sing-box rejects as meaningless", s["tag"])
+		}
 	}
 	// Also removed in 1.14: sing-box will not start without being told which
 	// resolver turns a dialled name into an address.
