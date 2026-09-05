@@ -1,0 +1,5 @@
+/panel
+/panel.exe
+*.db
+*.db-wal
+*.db-shm
