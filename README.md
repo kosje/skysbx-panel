@@ -42,11 +42,22 @@ TLS 由面板自己用 ACME 处理，不需要前置反向代理。备份就是�
 ### 面板
 
 ```bash
-sudo sh -c "$(wget -qO- https://raw.githubusercontent.com/kosje/skysbx-panel/main/install.sh)" \
-  -- --domain panel.example.com --email you@example.com
+wget -qO- https://raw.githubusercontent.com/kosje/skysbx-panel/main/install.sh | sh
 ```
 
-不带参数就是交互式。等价的手动方式：
+不带参数就是交互式，会问域名。带参数要加 `-s --`：
+
+```bash
+P=https://raw.githubusercontent.com/kosje/skysbx-panel/main/install.sh
+
+wget -qO- $P | sh -s -- --domain panel.example.com --email you@example.com
+wget -qO- $P | sh -s -- --version      # 装的是哪个版本（也用来看 CDN 是否还在缓存旧版）
+wget -qO- $P | sh -s -- --upgrade      # 重新构建并重启，数据库不动
+wget -qO- $P | sh -s -- --uninstall    # 卸载服务，保留数据库和证书
+wget -qO- $P | sh -s -- --purge        # 连数据库和证书一起删，不可恢复
+```
+
+等价的手动方式：
 
 ```bash
 git clone https://github.com/kosje/skysbx-panel.git
@@ -63,15 +74,22 @@ sudo ./deploy/install-panel.sh --domain panel.example.com --email you@example.co
 在面板里 **Nodes → 新增**，复制那个只显示一次的接入 token，然后在新服务器上：
 
 ```bash
-sudo sh -c "$(wget -qO- https://raw.githubusercontent.com/kosje/skysbx-node/main/install.sh)"
+wget -qO- https://raw.githubusercontent.com/kosje/skysbx-node/main/install.sh | sh
 ```
 
-它会问面板地址和 token。要非交互就带参数：
+它会问面板地址和 token。带参数同样加 `-s --`：
 
 ```bash
-sudo sh -c "$(wget -qO- https://raw.githubusercontent.com/kosje/skysbx-node/main/install.sh)" \
-  -- --panel https://panel.example.com --token <token>
+N=https://raw.githubusercontent.com/kosje/skysbx-node/main/install.sh
+
+wget -qO- $N | sh -s -- --panel https://panel.example.com --token <token>
+wget -qO- $N | sh -s -- --version      # 节点版本 + 内嵌的 sing-box 版本
+wget -qO- $N | sh -s -- --upgrade      # 重新构建并重启，含 sing-box 核心升级
+wget -qO- $N | sh -s -- --uninstall    # 卸载服务，保留证书和 node.env
+wget -qO- $N | sh -s -- --purge        # 连证书、构建缓存、脚本装的 Docker 一起清掉
 ```
+
+**sing-box 核心怎么升级：** 节点是把 sing-box 编进自己二进制里的，所以 `--upgrade` 重新构建一次就是升级 —— 它会重新拉 [`skysbx-core`](https://github.com/kosje/skysbx-core) 再编。没有单独的核心版本要管。
 
 节点**主动连面板**，所以它不需要开放任何控制端口、不需要面板能路由到它，NAT 后面也能用。
 

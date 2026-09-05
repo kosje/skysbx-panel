@@ -20,10 +20,24 @@ ok()   { printf '%s  ok%s %s\n' "$GRN" "$RST" "$*"; }
 warn() { printf '%s warn%s %s\n' "$YLW" "$RST" "$*"; }
 die()  { printf '%s fail%s %s\n' "$RED" "$RST" "$*" >&2; exit 1; }
 
+ACTION=install
+
 usage() {
     cat <<EOF
-Usage: sudo ./install-panel.sh --domain <fqdn> [options]
+Usage: sudo ./install-panel.sh [--domain <fqdn>] [options]
 
+Actions (default: install)
+  --version         What is installed.
+  --upgrade         Rebuild from the current sources and restart. Reads the
+                    domain back from the systemd unit, so it needs no
+                    arguments. The database is never touched.
+  --uninstall       Stop and remove the service and the binary. Keeps the
+                    database and the certificates.
+  --purge           --uninstall, and delete the database and certificates too.
+                    That is every user, node and subscription — there is no
+                    undo, and no copy anywhere else.
+
+Install options
   --domain <fqdn>   Panel domain. Must already resolve to this server.
   --email <addr>    Contact address for Let's Encrypt (recommended).
   --src <dir>       Build from a checkout already on disk instead of cloning.
@@ -36,13 +50,98 @@ EOF
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --domain) DOMAIN=$2; shift 2 ;;
-        --email)  EMAIL=$2; shift 2 ;;
-        --src)    SRC_DIR=$2; shift 2 ;;
-        -h|--help) usage; exit 0 ;;
+        --version)   ACTION=version; shift ;;
+        --upgrade)   ACTION=upgrade; shift ;;
+        --uninstall) ACTION=uninstall; shift ;;
+        --purge)     ACTION=purge; shift ;;
+        --domain)    DOMAIN=$2; shift 2 ;;
+        --email)     EMAIL=$2; shift 2 ;;
+        --src)       SRC_DIR=$2; shift 2 ;;
+        -h|--help)   usage; exit 0 ;;
         *) die "unknown option: $1 (try --help)" ;;
     esac
 done
+
+# ───────────────────────── version / uninstall / purge ─────────────────────
+
+if [ "$ACTION" = version ]; then
+    if [ -x "$ROOT/skysbx-panel" ]; then
+        "$ROOT/skysbx-panel" -version
+        printf 'installed  %s\n' "$(stat -c %y "$ROOT/skysbx-panel" 2>/dev/null | cut -d. -f1)"
+        systemctl is-active --quiet skysbx-panel \
+            && printf 'service    running\n' || printf 'service    not running\n'
+        [ -f "$ROOT/skysbx.db" ] && printf 'database   %s (%s)\n' "$ROOT/skysbx.db" \
+            "$(du -h "$ROOT/skysbx.db" 2>/dev/null | cut -f1)"
+    else
+        printf 'skysbx-panel is not installed at %s\n' "$ROOT"
+    fi
+    exit 0
+fi
+
+if [ "$ACTION" = uninstall ] || [ "$ACTION" = purge ]; then
+    [ "$(id -u)" = 0 ] || die "run as root"
+
+    say "removing the service"
+    systemctl disable --now skysbx-panel >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/skysbx-panel.service
+    systemctl daemon-reload 2>/dev/null || true
+    systemctl reset-failed 2>/dev/null || true
+    ok "skysbx-panel stopped and removed"
+
+    rm -f "$ROOT/skysbx-panel"
+    # The build tree is scratch space, not data: a fresh clone on every run.
+    rm -rf "$ROOT/build/skysbx-panel"
+    ok "binary and build cache removed"
+
+    if [ "$ACTION" = purge ]; then
+        say "purging"
+        # Every user, node and subscription lives in this one file. Nothing else
+        # in this script destroys anything that cannot be rebuilt.
+        rm -f "$ROOT/skysbx.db" "$ROOT/skysbx.db-wal" "$ROOT/skysbx.db-shm"
+        rm -rf "$ROOT/certs"
+        ok "database and certificates deleted"
+        if command -v docker >/dev/null 2>&1; then
+            docker image rm golang:1.27 >/dev/null 2>&1 \
+                && ok "build image removed" || true
+        fi
+        if [ -f "$ROOT/.docker-installed-by-skysbx" ] && command -v docker >/dev/null 2>&1; then
+            say "removing docker (this script installed it)"
+            systemctl disable --now docker docker.socket containerd >/dev/null 2>&1 || true
+            apt-get purge -y -qq docker-ce docker-ce-cli containerd.io \
+                docker-buildx-plugin docker-compose-plugin >/dev/null 2>&1 || true
+            apt-get autoremove -y -qq >/dev/null 2>&1 || true
+            rm -rf /var/lib/docker /var/lib/containerd /etc/docker
+            rm -f "$ROOT/.docker-installed-by-skysbx"
+            ok "docker removed"
+        fi
+    fi
+
+    # Shared with the node when both are on one host, so it goes only if this
+    # was the last thing in it.
+    rmdir "$ROOT/build" 2>/dev/null || true
+    if rmdir "$ROOT" 2>/dev/null; then
+        ok "$ROOT removed"
+    else
+        warn "$ROOT kept — it still holds files (the node's, or your own):"
+        ls -A "$ROOT" 2>/dev/null | sed 's/^/       /'
+    fi
+
+    printf '\n%sskysbx panel removed.%s\n' "$GRN" "$RST"
+    [ "$ACTION" = uninstall ] && printf \
+        'The database and certificates were kept at %s; --purge removes those too.\n' "$ROOT"
+    exit 0
+fi
+
+if [ "$ACTION" = upgrade ]; then
+    [ -f /etc/systemd/system/skysbx-panel.service ] \
+        || die "nothing installed (run without --upgrade first)"
+    DOMAIN=${DOMAIN:-$(sed -n 's/.*--domain \([^ ]*\).*/\1/p' \
+        /etc/systemd/system/skysbx-panel.service | head -1)}
+    EMAIL=${EMAIL:-$(sed -n 's/.*--acme-email \([^ ]*\).*/\1/p' \
+        /etc/systemd/system/skysbx-panel.service | head -1)}
+    [ -n "$DOMAIN" ] || die "cannot read the domain from the systemd unit; pass --domain"
+    say "upgrading — domain $DOMAIN"
+fi
 
 # ─────────────────────────────── preflight ────────────────────────────────
 
@@ -128,13 +227,20 @@ find "$BUILD" -type f -name '*.sh' -exec sed -i 's/\r$//' {} + 2>/dev/null || tr
 if ! command -v docker >/dev/null; then
     say "installing docker (used only to build; nothing runs in it)"
     curl -fsSL https://get.docker.com | sh >/dev/null
+    # Remembered so --purge can remove Docker again without guessing. A host
+    # that already had it is running something in it.
+    touch "$ROOT/.docker-installed-by-skysbx"
 fi
+
+# Stamped into the binary so `--version` can answer what is running without
+# anyone reading a build log.
+VER=$(git -C "$BUILD/skysbx-panel" rev-parse --short HEAD 2>/dev/null || echo unknown)
 
 say "building"
 docker run --rm -v "$BUILD/skysbx-panel:/src" -w /src \
     -e GOFLAGS=-buildvcs=false -e CGO_ENABLED=0 -e GOOS=linux \
     golang:1.27 \
-    go build -trimpath -ldflags '-s -w' -o /src/skysbx-panel ./cmd/panel
+    go build -trimpath -ldflags "-s -w -X main.version=$VER" -o /src/skysbx-panel ./cmd/panel
 install -m 0755 "$BUILD/skysbx-panel/skysbx-panel" "$ROOT/skysbx-panel"
 ok "panel binary installed"
 

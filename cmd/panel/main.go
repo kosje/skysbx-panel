@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -22,6 +23,10 @@ import (
 	"github.com/kosje/skysbx-panel/internal/web"
 )
 
+// version is stamped by the installer with the commit it built from, so an
+// operator can tell what is actually running without reading a build log.
+var version = "dev"
+
 func main() {
 	var (
 		addr     = flag.String("addr", "127.0.0.1:8080", "address to listen on")
@@ -34,8 +39,14 @@ func main() {
 				"Needs ports 80 and 443, and the domain must already resolve here")
 		acmeEmail = flag.String("acme-email", "",
 			"contact address for the certificate authority (recommended)")
+		showVersion = flag.Bool("version", false, "print the version and exit")
 	)
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("skysbx-panel %s\n", version)
+		return
+	}
 
 	log := newLogger(*logLevel)
 

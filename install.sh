@@ -3,10 +3,13 @@
 #
 #   wget -qO- https://raw.githubusercontent.com/kosje/skysbx-panel/main/install.sh | sh
 #
-# Arguments are passed through to deploy/install-panel.sh, so a non-interactive
-# install is:
+# Arguments go through to deploy/install-panel.sh after `-s --`:
 #
-#   wget -qO- .../install.sh | sh -s -- --domain panel.example.com --email you@example.com
+#   ... | sh -s -- --domain panel.example.com --email you@example.com
+#   ... | sh -s -- --version      what is installed
+#   ... | sh -s -- --upgrade      rebuild and restart; the database is untouched
+#   ... | sh -s -- --uninstall    remove the service; keep the database
+#   ... | sh -s -- --purge        remove everything, database included
 #
 # This file exists only to fetch the repository and hand over. Everything real
 # is in deploy/install-panel.sh, which is worth reading before running either.
