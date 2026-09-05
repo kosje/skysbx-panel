@@ -343,6 +343,8 @@ NOTICE             命名条款要求的声明
 
 `internal/singbox/` 里只放 JSON 结构体定义 —— panel 需要生成 sing-box 配置，但**绝不能 import sing-box 本体**，否则许可边界就破了。这是一条硬规则，值得在 CI 里加一条检查。
 
+这条边界有代价，而且已经付过一次了：panel 没法拿 sing-box 的 schema 去校验自己生成的配置。2026-09-05 那次，订阅里的 DNS 块用的还是 1.12 之前的写法（`"address": "https://1.1.1.1/dns-query"`），1.14 已经直接拒收；同时缺 `route.default_domain_resolver`，还把 local DNS 的 detour 指到了空的 direct 出站 —— 三条都让客户端起不来，而 16 个订阅测试全绿。测试只能把字段形状钉死，钉不住上游下一次改名。**唯一真正的验证是拿真的 sing-box 跑一遍生成的配置**（`sing-box check -c`），这一步得留在部署验证里，进不了 panel 的单元测试。
+
 ## 10. 从这次实战里带出来的约束清单
 
 写代码时会反复用到，集中列在这里：
