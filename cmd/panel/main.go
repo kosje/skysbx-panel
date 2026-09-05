@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -89,28 +90,49 @@ func main() {
 
 	var redirectSrv *http.Server
 	if *domain != "" {
-		tlsCfg, err := web.TLSConfig(*domain, *acmeEmail, filepath.Dir(*dbPath))
+		autoTLS, err := web.NewAutoTLS(*domain, *acmeEmail, filepath.Dir(*dbPath))
 		if err != nil {
 			log.Error("automatic TLS", "domain", *domain, "error", err)
 			os.Exit(1)
 		}
-		httpSrv.TLSConfig = tlsCfg
+		httpSrv.TLSConfig = autoTLS.TLSConfig()
 
-		// Port 80 answers the ACME challenge and redirects everything else.
-		// The challenge handler has to come first: answering it with a redirect
-		// is how renewals fail three months after anyone last looked.
+		// Port 80 answers the ACME challenge and redirects everything else, and
+		// it has to be serving before the certificate is asked for: that is the
+		// port the CA validates on.
 		redirectSrv = &http.Server{
 			Addr:              ":80",
-			Handler:           web.ChallengeAndRedirect(*domain),
+			Handler:           autoTLS.ChallengeAndRedirect(),
 			ReadHeaderTimeout: 10 * time.Second,
 		}
+		listening := make(chan struct{})
 		go func() {
-			if err := redirectSrv.ListenAndServe(); err != nil &&
-				!errors.Is(err, http.ErrServerClosed) {
+			ln, err := net.Listen("tcp", redirectSrv.Addr)
+			if err != nil {
 				log.Error("listen on :80", "error", err)
+				close(listening)
+				stop()
+				return
+			}
+			close(listening)
+			if err := redirectSrv.Serve(ln); err != nil &&
+				!errors.Is(err, http.ErrServerClosed) {
+				log.Error("serve on :80", "error", err)
 				stop()
 			}
 		}()
+		<-listening
+
+		// Blocking here means the panel is either reachable over HTTPS or
+		// visibly stuck, rather than accepting connections it cannot complete.
+		obtainCtx, cancel := context.WithTimeout(ctx, 4*time.Minute)
+		err = autoTLS.Obtain(obtainCtx)
+		cancel()
+		if err != nil {
+			log.Error("automatic TLS", "domain", *domain, "error", err)
+		} else {
+			log.Info("certificate ready", "domain", *domain)
+		}
 	}
 
 	go func() {

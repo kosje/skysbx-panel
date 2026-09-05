@@ -65,18 +65,36 @@ type ClientReality struct {
 
 type DNS struct {
 	Servers []DNSServer `json:"servers"`
+	Rules   []DNSRule   `json:"rules,omitempty"`
+	Final   string      `json:"final,omitempty"`
 }
 
+// DNSServer is the post-1.12 form. The older shape — a single "address" string
+// like "https://1.1.1.1/dns-query" — was removed in sing-box 1.14, and a config
+// carrying it is rejected outright rather than warned about.
 type DNSServer struct {
-	Tag     string `json:"tag"`
-	Address string `json:"address"`
-	Detour  string `json:"detour,omitempty"`
+	Type   string `json:"type"`
+	Tag    string `json:"tag"`
+	Server string `json:"server"`
+	Detour string `json:"detour,omitempty"`
+}
+
+type DNSRule struct {
+	Domain []string `json:"domain,omitempty"`
+	Server string   `json:"server"`
 }
 
 type Route struct {
 	Rules []RouteRule `json:"rules,omitempty"`
 	Final string      `json:"final,omitempty"`
 	Auto  bool        `json:"auto_detect_interface,omitempty"`
+	// Required since sing-box 1.14: a config without it does not start, it
+	// refuses with a migration notice.
+	DefaultDomainResolver *DomainResolver `json:"default_domain_resolver,omitempty"`
+}
+
+type DomainResolver struct {
+	Server string `json:"server"`
 }
 
 type RouteRule struct {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -428,5 +429,78 @@ func TestUserInfoHeader(t *testing.T) {
 	}
 	if got := UserInfoHeader(1, 2, 1700000000); !strings.HasSuffix(got, "; expire=1700000000") {
 		t.Errorf("expiry missing: %q", got)
+	}
+}
+
+// The DNS block has bitten this package once already: sing-box 1.14 removed the
+// pre-1.12 form, where a server was one "address" string like
+// "https://1.1.1.1/dns-query", and rejects a config carrying it outright — so
+// every client got a subscription it could not load.
+//
+// The licence boundary means this package cannot import sing-box to validate
+// against the real schema, so the shape is pinned here instead.
+func TestSingBoxDNSUsesTheCurrentServerFormat(t *testing.T) {
+	u, nodes, inbounds := fixture(t)
+	entries, _ := Build(u, nodes, inbounds, nil)
+
+	data, err := SingBox(entries)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	var cfg struct {
+		DNS struct {
+			Servers []map[string]any `json:"servers"`
+			Rules   []map[string]any `json:"rules"`
+			Final   string           `json:"final"`
+		} `json:"dns"`
+		Route struct {
+			DefaultDomainResolver map[string]any `json:"default_domain_resolver"`
+		} `json:"route"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("not valid JSON: %v", err)
+	}
+	if len(cfg.DNS.Servers) == 0 {
+		t.Fatal("no DNS servers")
+	}
+	for _, s := range cfg.DNS.Servers {
+		if _, legacy := s["address"]; legacy {
+			t.Errorf("DNS server %v uses the removed \"address\" form", s["tag"])
+		}
+		if s["type"] == nil || s["type"] == "" {
+			t.Errorf("DNS server %v has no type", s["tag"])
+		}
+		if s["server"] == nil || s["server"] == "" {
+			t.Errorf("DNS server %v has no server", s["tag"])
+		}
+	}
+	if cfg.DNS.Final == "" {
+		t.Error("dns.final is unset, so the fallback is whatever comes first")
+	}
+	// Also removed in 1.14: sing-box will not start without being told which
+	// resolver turns a dialled name into an address.
+	if cfg.Route.DefaultDomainResolver["server"] == nil {
+		t.Error("route.default_domain_resolver is unset; sing-box 1.14 refuses to start")
+	}
+
+	// A node reached by name cannot have that name resolved through the proxy
+	// it is the far end of.
+	var got []string
+	for _, r := range cfg.DNS.Rules {
+		if r["server"] != "local" {
+			continue
+		}
+		for _, d := range r["domain"].([]any) {
+			got = append(got, d.(string))
+		}
+	}
+	want := serverDomains(entries)
+	if len(want) == 0 {
+		t.Fatal("fixture has no node addressed by name, so the loop is untested")
+	}
+	for _, host := range want {
+		if !slices.Contains(got, host) {
+			t.Errorf("node address %q is not pinned to the local resolver", host)
+		}
 	}
 }

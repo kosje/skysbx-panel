@@ -2,6 +2,7 @@ package sub
 
 import (
 	"encoding/json"
+	"net"
 
 	"github.com/kosje/skysbx-panel/internal/singbox"
 	"github.com/kosje/skysbx-panel/internal/store"
@@ -81,12 +82,24 @@ func SingBox(entries []Entry) ([]byte, error) {
 	outbounds = append(outbounds, auto, proxy,
 		singbox.ClientOutbound{Type: tagDirect, Tag: tagDirect})
 
+	dns := &singbox.DNS{
+		Servers: []singbox.DNSServer{
+			{Type: "https", Tag: "remote", Server: "1.1.1.1", Detour: tagProxy},
+			// No detour: that already means direct, and naming the empty
+			// direct outbound explicitly is rejected as meaningless.
+			{Type: "https", Tag: "local", Server: "223.5.5.5"},
+		},
+		Final: "remote",
+	}
+	// Resolving a server's own hostname through the proxy that has not been
+	// dialled yet is a loop. Send those names to the local resolver.
+	if hosts := serverDomains(entries); len(hosts) > 0 {
+		dns.Rules = []singbox.DNSRule{{Domain: hosts, Server: "local"}}
+	}
+
 	cfg := singbox.ClientConfig{
 		Log: &singbox.Log{Level: "warn"},
-		DNS: &singbox.DNS{Servers: []singbox.DNSServer{
-			{Tag: "remote", Address: "https://1.1.1.1/dns-query", Detour: tagProxy},
-			{Tag: "local", Address: "https://223.5.5.5/dns-query", Detour: tagDirect},
-		}},
+		DNS: dns,
 		Inbounds: []singbox.ClientInbound{{
 			Type: "mixed", Tag: "mixed-in", Listen: "127.0.0.1", ListenPort: 2080,
 		}},
@@ -97,9 +110,28 @@ func SingBox(entries []Entry) ([]byte, error) {
 			},
 			Final: tagProxy,
 			Auto:  true,
+			// Which resolver turns a dialled name into an address. "local" so
+			// that a node addressed by name is resolved outside the tunnel that
+			// name is the far end of.
+			DefaultDomainResolver: &singbox.DomainResolver{Server: "local"},
 		},
 	}
 	return json.MarshalIndent(cfg, "", "  ")
+}
+
+// serverDomains is the set of node addresses that are names rather than
+// literal addresses, deduplicated and in first-seen order.
+func serverDomains(entries []Entry) []string {
+	seen := make(map[string]bool, len(entries))
+	var hosts []string
+	for _, e := range entries {
+		if e.Address == "" || net.ParseIP(e.Address) != nil || seen[e.Address] {
+			continue
+		}
+		seen[e.Address] = true
+		hosts = append(hosts, e.Address)
+	}
+	return hosts
 }
 
 func fpOr(fp string) string {
