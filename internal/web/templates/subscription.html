@@ -1,0 +1,86 @@
+{{define "subscription"}}<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>订阅 · {{.User.Name}}</title>
+<style>
+:root{color-scheme:light dark;--fg:#111;--dim:#666;--line:#e3e3e3;--bg:#fff;--card:#fafafa;--accent:#2563eb}
+@media(prefers-color-scheme:dark){:root{--fg:#e8e8e8;--dim:#999;--line:#2a2a2a;--bg:#151515;--card:#1e1e1e;--accent:#60a5fa}}
+*{box-sizing:border-box}
+body{margin:0;padding:1.5rem 1rem;background:var(--bg);color:var(--fg);
+     font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif}
+main{max-width:44rem;margin:0 auto}
+h1{font-size:1.35rem;margin:0 0 .25rem}
+.sub{color:var(--dim);font-size:.9rem;margin:0 0 1.5rem}
+.meter{height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin:.5rem 0}
+.meter>i{display:block;height:100%;background:var(--accent)}
+.stats{display:flex;gap:1.5rem;flex-wrap:wrap;font-size:.9rem;color:var(--dim);margin-bottom:1.5rem}
+.stats b{color:var(--fg);font-weight:600}
+.box{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:.85rem 1rem;margin-bottom:.6rem}
+.box h3{margin:0 0 .3rem;font-size:.95rem;display:flex;justify-content:space-between;gap:1rem}
+.tag{font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:var(--dim);
+     border:1px solid var(--line);border-radius:4px;padding:.1rem .4rem}
+.addr{color:var(--dim);font-size:.85rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.url{width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8rem;
+     padding:.5rem .6rem;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+.row{display:flex;gap:.5rem;align-items:center;margin-top:.5rem}
+button{font:inherit;font-size:.85rem;padding:.45rem .8rem;border:1px solid var(--line);
+       border-radius:6px;background:var(--bg);color:var(--fg);cursor:pointer;white-space:nowrap}
+button:hover{border-color:var(--accent);color:var(--accent)}
+.note{color:var(--dim);font-size:.85rem;margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--line)}
+.warn{background:#fef3c7;color:#78350f;border-radius:8px;padding:.85rem 1rem;margin-bottom:1.5rem}
+@media(prefers-color-scheme:dark){.warn{background:#3f2d09;color:#fde68a}}
+</style>
+</head>
+<body>
+<main>
+  <h1>{{.User.Name}}</h1>
+  <p class="sub">订阅链接 · 导入客户端后会自动更新</p>
+
+  {{if .Inactive}}
+  <div class="warn">
+    此订阅当前没有可用节点。可能是账号已停用、已过期，或流量已用尽。
+  </div>
+  {{end}}
+
+  <div class="stats">
+    <span>已用 <b>{{bytes .Used}}</b></span>
+    {{if .Limit}}<span>限额 <b>{{bytes .Limit}}</b></span>{{else}}<span>限额 <b>不限</b></span>{{end}}
+    {{if .Expires}}<span>到期 <b>{{.Expires}}</b></span>{{else}}<span>到期 <b>永不</b></span>{{end}}
+    <span>节点 <b>{{len .Entries}}</b></span>
+  </div>
+  {{if .Limit}}
+  <div class="meter"><i style="width:{{pct .Used .Limit}}%"></i></div>
+  {{end}}
+
+  <div class="row">
+    <input class="url" id="suburl" readonly value="{{.SubURL}}">
+    <button onclick="copy('suburl',this)">复制订阅</button>
+  </div>
+
+  {{range .Entries}}
+  <div class="box">
+    <h3>{{.Name}} <span class="tag">{{.Protocol}}</span></h3>
+    <div class="addr">{{.Address}}:{{.Port}}</div>
+  </div>
+  {{end}}
+
+  <p class="note">
+    把上面的订阅链接粘贴进 sing-box、mihomo/Clash 或 v2rayNG 即可 ——
+    面板会按客户端自动返回对应格式。
+    也可以直接取指定格式：
+    <code>?format=singbox</code>、<code>?format=clash</code>、<code>?format=base64</code>。
+  </p>
+</main>
+<script>
+function copy(id,btn){
+  const el=document.getElementById(id);
+  navigator.clipboard.writeText(el.value).then(()=>{
+    const t=btn.textContent; btn.textContent='已复制';
+    setTimeout(()=>btn.textContent=t,1200);
+  });
+}
+</script>
+</body>
+</html>{{end}}

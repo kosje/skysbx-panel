@@ -32,7 +32,14 @@
     <tbody>
     {{range .Users}}
       <tr>
-        <td>{{.Name}}{{if .Note}}<div class="dim" style="font-size:.8rem">{{.Note}}</div>{{end}}</td>
+        <td>
+          {{.Name}}{{if .Note}}<div class="dim" style="font-size:.8rem">{{.Note}}</div>{{end}}
+          <div style="font-size:.75rem;margin-top:.2rem">
+            <a class="dim" href="/sub/{{.SubToken}}" target="_blank" rel="noopener">订阅页</a>
+            <button class="ghost" style="font-size:.7rem;padding:.1rem .35rem"
+                    onclick="copySub(this,'{{.SubToken}}')">复制链接</button>
+          </div>
+        </td>
         <td>
           {{if .Active $.Now}}<span class="pill ok">正常</span>
           {{else if not .Enabled}}<span class="pill off">已停用</span>
@@ -61,4 +68,17 @@
   </table>
   {{end}}
 </div>
+<script>
+// The absolute URL is built here rather than server-side: the panel is reached
+// under whatever host the operator uses, and hard-coding one would hand out
+// links that work from the browser but nowhere else.
+function copySub(btn, token) {
+  const url = location.origin + '/sub/' + token;
+  navigator.clipboard.writeText(url).then(() => {
+    const t = btn.textContent;
+    btn.textContent = '已复制';
+    setTimeout(() => btn.textContent = t, 1200);
+  });
+}
+</script>
 {{end}}

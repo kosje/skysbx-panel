@@ -79,6 +79,10 @@ func (s *Server) Handler() http.Handler {
 	}
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(static))))
 
+	// The token in the path is the credential; this is the one unauthenticated
+	// route that returns anything.
+	mux.HandleFunc("GET /sub/{token}", s.getSubscription)
+
 	// Open routes.
 	mux.HandleFunc("GET /setup", s.getSetup)
 	mux.HandleFunc("POST /setup", s.postSetup)
