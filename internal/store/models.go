@@ -25,8 +25,18 @@ type User struct {
 	ExpiresAt    *time.Time // nil = never expires
 	TrafficLimit int64      // bytes, 0 = unlimited
 	TrafficUsed  int64
-	Note         string
-	CreatedAt    time.Time
+
+	// IPLimit caps how many distinct source addresses this user may have
+	// connected at once, per node. Zero is no limit.
+	//
+	// It exists because a subscription is a file: nothing stops the person it
+	// was issued to from posting it, and without a cap one account becomes
+	// fifty on the same bandwidth bill. Enforced on the node, which is the only
+	// place that sees a connection as it is made.
+	IPLimit int
+
+	Note      string
+	CreatedAt time.Time
 }
 
 // Active reports whether the user should currently be present in the user list

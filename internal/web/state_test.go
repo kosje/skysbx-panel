@@ -25,6 +25,7 @@ type fakeChannel struct {
 func (f *fakeChannel) Handler() http.HandlerFunc    { return func(http.ResponseWriter, *http.Request) {} }
 func (f *fakeChannel) Connected(int64) bool         { return f.connected }
 func (f *fakeChannel) OnlineUsers() map[string]bool { return nil }
+func (f *fakeChannel) UserIPCounts() map[string]int { return nil }
 func (f *fakeChannel) ApplyError(int64) string      { return f.applyErr }
 func (f *fakeChannel) LiveInbounds(int64) (map[string]bool, bool) {
 	return f.tags, f.known

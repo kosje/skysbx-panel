@@ -50,6 +50,10 @@ type NodeChannel interface {
 	Connected(nodeID int64) bool
 	OnlineUsers() map[string]bool
 
+	// UserIPCounts is how many distinct source addresses each user is
+	// connected from, summed across nodes.
+	UserIPCounts() map[string]int
+
 	// LiveInbounds is the set of inbound tags the node says it is serving.
 	// known is false when it has not said — a disconnected node, or one that
 	// has not reported yet — which must not be shown as "everything is down".

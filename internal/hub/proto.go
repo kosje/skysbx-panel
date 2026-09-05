@@ -71,6 +71,14 @@ type ConfigData struct {
 type UsersData struct {
 	ByTag      map[string][]singbox.User `json:"by_tag"`
 	StatsUsers []string                  `json:"stats_users"`
+
+	// IPLimits is how many distinct source addresses each user may have
+	// connected at once, by name. Absent or zero means no limit.
+	//
+	// Sent with the users rather than separately: this is the message that
+	// changes when a user is added, edited or removed, and a second channel
+	// for the limits would let the two drift.
+	IPLimits map[string]int `json:"ip_limits,omitempty"`
 }
 
 // StatsData reports traffic since the previous report, not cumulative totals.
@@ -93,9 +101,11 @@ type SystemStats struct {
 	Uptime   int64   `json:"uptime"`
 }
 
-// OnlineData lists users with at least one live connection right now.
+// OnlineData lists users with at least one live connection right now, and how
+// many distinct source addresses each of them is connected from.
 type OnlineData struct {
-	Users []string `json:"users"`
+	Users []string       `json:"users"`
+	IPs   map[string]int `json:"ips,omitempty"`
 }
 
 // StateData is the node's own account of what it is serving, sent after every

@@ -10,7 +10,7 @@ import (
 var ErrNotFound = errors.New("not found")
 
 const userCols = `id, name, vless_uuid, password, ss_password, sub_token,
-	enabled, expires_at, traffic_limit, traffic_used, note, created_at`
+	enabled, expires_at, traffic_limit, traffic_used, ip_limit, note, created_at`
 
 func scanUser(sc interface{ Scan(...any) error }) (*User, error) {
 	var u User
@@ -18,7 +18,7 @@ func scanUser(sc interface{ Scan(...any) error }) (*User, error) {
 	var created int64
 	if err := sc.Scan(&u.ID, &u.Name, &u.VlessUUID, &u.Password, &u.SSPassword,
 		&u.SubToken, &u.Enabled, &expires, &u.TrafficLimit, &u.TrafficUsed,
-		&u.Note, &created); err != nil {
+		&u.IPLimit, &u.Note, &created); err != nil {
 		return nil, err
 	}
 	if expires.Valid {
@@ -36,10 +36,10 @@ func (s *Store) CreateUser(u *User) error {
 	}
 	res, err := s.db.Exec(`INSERT INTO users
 		(name, vless_uuid, password, ss_password, sub_token, enabled,
-		 expires_at, traffic_limit, traffic_used, note, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, unixepoch())`,
+		 expires_at, traffic_limit, traffic_used, ip_limit, note, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, unixepoch())`,
 		u.Name, u.VlessUUID, u.Password, u.SSPassword, u.SubToken, u.Enabled,
-		expires, u.TrafficLimit, u.Note)
+		expires, u.TrafficLimit, u.IPLimit, u.Note)
 	if err != nil {
 		return asConflict(fmt.Errorf("create user %q: %w", u.Name, err))
 	}
@@ -91,10 +91,10 @@ func (s *Store) UpdateUser(u *User) error {
 	}
 	res, err := s.db.Exec(`UPDATE users SET
 		name = ?, vless_uuid = ?, password = ?, ss_password = ?,
-		enabled = ?, expires_at = ?, traffic_limit = ?, note = ?
+		enabled = ?, expires_at = ?, traffic_limit = ?, ip_limit = ?, note = ?
 		WHERE id = ?`,
 		u.Name, u.VlessUUID, u.Password, u.SSPassword,
-		u.Enabled, expires, u.TrafficLimit, u.Note, u.ID)
+		u.Enabled, expires, u.TrafficLimit, u.IPLimit, u.Note, u.ID)
 	if err != nil {
 		return asConflict(fmt.Errorf("update user %d: %w", u.ID, err))
 	}

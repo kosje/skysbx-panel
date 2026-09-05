@@ -64,6 +64,7 @@ type conn struct {
 
 	lastSeen atomic.Int64 // unix seconds, for pong tracking
 	online   atomic.Pointer[[]string]
+	ips      atomic.Pointer[map[string]int]
 	state    atomic.Pointer[StateData]
 }
 
@@ -231,6 +232,11 @@ func (h *Hub) dispatch(ctx context.Context, c *conn, data []byte) error {
 		}
 		names := append([]string(nil), o.Users...)
 		c.online.Store(&names)
+		ips := make(map[string]int, len(o.IPs))
+		for name, n := range o.IPs {
+			ips[name] = n
+		}
+		c.ips.Store(&ips)
 		return nil
 
 	case TypeState:
@@ -304,9 +310,14 @@ func (h *Hub) pushTo(ctx context.Context, c *conn, config, users bool) error {
 		if err != nil {
 			return fmt.Errorf("build users for node %d: %w", c.nodeID, err)
 		}
+		limits, err := h.svc.UserIPLimits()
+		if err != nil {
+			return fmt.Errorf("read address limits: %w", err)
+		}
 		if err := h.send(ctx, c, TypeUsers, h.nextID.Add(1), UsersData{
 			ByTag:      byTag,
 			StatsUsers: service.StatsUsers(byTag),
+			IPLimits:   limits,
 		}); err != nil {
 			return err
 		}
@@ -396,6 +407,33 @@ func (h *Hub) OnlineUsers() map[string]bool {
 		if names := c.online.Load(); names != nil {
 			for _, n := range *names {
 				out[n] = true
+			}
+		}
+	}
+	return out
+}
+
+// UserIPCounts is how many distinct source addresses each user is connected
+// from, summed across nodes.
+//
+// Summed, not maxed: someone sharing an account across three nodes is using
+// three nodes' worth of bandwidth, and the number an operator wants to see is
+// how many places it is being used from. The cap itself is enforced per node —
+// that is the only place a connection can be refused as it is made — so this
+// figure can legitimately exceed the limit on a multi-node panel.
+func (h *Hub) UserIPCounts() map[string]int {
+	h.mu.RLock()
+	conns := make([]*conn, 0, len(h.conns))
+	for _, c := range h.conns {
+		conns = append(conns, c)
+	}
+	h.mu.RUnlock()
+
+	out := map[string]int{}
+	for _, c := range conns {
+		if m := c.ips.Load(); m != nil {
+			for name, n := range *m {
+				out[name] += n
 			}
 		}
 	}

@@ -49,7 +49,7 @@ func (s *Server) renderUsers(w http.ResponseWriter, r *http.Request, code int) {
 	}
 
 	data := map[string]any{"Users": users, "Now": nowFunc(),
-		"Online": s.nodes.OnlineUsers(),
+		"Online": s.nodes.OnlineUsers(), "IPs": s.nodes.UserIPCounts(),
 		"Access": access, "InboundCount": len(inbounds)}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -78,6 +78,20 @@ func expiryFromForm(r *http.Request) (*time.Time, error) {
 	}
 	t = t.Add(24*time.Hour - time.Second)
 	return &t, nil
+}
+
+// ipLimitFromForm reads the concurrent-address cap. Blank and zero both mean
+// no limit.
+func ipLimitFromForm(r *http.Request) (int, error) {
+	v := strings.TrimSpace(r.FormValue("ip_limit"))
+	if v == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("address limit must be a whole number, or blank for no limit")
+	}
+	return n, nil
 }
 
 // limitFromForm reads the traffic field, in GiB. Blank and zero both mean no
@@ -113,6 +127,13 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	nu.TrafficLimit = limit
+
+	ipLimit, err := ipLimitFromForm(r)
+	if err != nil {
+		s.errorBanner(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	nu.IPLimit = ipLimit
 
 	if _, err := s.svc.CreateUser(nu); err != nil {
 		s.fail(w, r, err)
@@ -164,10 +185,17 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ipLimit, err := ipLimitFromForm(r)
+	if err != nil {
+		s.errorBanner(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	u.Name = strings.TrimSpace(r.FormValue("name"))
 	u.Note = strings.TrimSpace(r.FormValue("note"))
 	u.ExpiresAt = expires
 	u.TrafficLimit = limit
+	u.IPLimit = ipLimit
 
 	if err := s.svc.UpdateUser(u); err != nil {
 		s.fail(w, r, err)

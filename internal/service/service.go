@@ -72,6 +72,7 @@ type NewUser struct {
 	Note         string
 	ExpiresAt    *time.Time
 	TrafficLimit int64
+	IPLimit      int
 }
 
 func (s *Service) CreateUser(nu NewUser) (*store.User, error) {
@@ -92,6 +93,7 @@ func (s *Service) CreateUser(nu NewUser) (*store.User, error) {
 		Enabled:      true,
 		ExpiresAt:    nu.ExpiresAt,
 		TrafficLimit: nu.TrafficLimit,
+		IPLimit:      nu.IPLimit,
 		Note:         nu.Note,
 	}
 	if err := s.st.CreateUser(u); err != nil {
@@ -116,6 +118,9 @@ func (s *Service) UpdateUser(u *store.User) error {
 	if u.TrafficLimit < 0 {
 		return invalid("traffic limit cannot be negative")
 	}
+	if u.IPLimit < 0 {
+		return invalid("address limit cannot be negative")
+	}
 	if err := s.st.UpdateUser(u); err != nil {
 		return err
 	}
@@ -129,6 +134,27 @@ func (s *Service) DeleteUser(id int64) error {
 	}
 	s.notify.UsersChanged()
 	return nil
+}
+
+// UserIPLimits is every active user's cap on concurrent source addresses,
+// keyed by the name the node knows them by. Users with no cap are omitted, so
+// the common case sends nothing.
+//
+// Only active users: an expired or over-quota account is not in the node's user
+// list at all, and a limit for a name the node has never heard of is noise.
+func (s *Service) UserIPLimits() (map[string]int, error) {
+	users, err := s.st.Users()
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	out := map[string]int{}
+	for _, u := range users {
+		if u.IPLimit > 0 && u.Active(now) {
+			out[u.Name] = u.IPLimit
+		}
+	}
+	return out, nil
 }
 
 // UserInboundIDs is the set of inbounds this user may use. Empty means every
