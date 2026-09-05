@@ -165,3 +165,34 @@ func editFixture(t *testing.T) (*Service, int64) {
 	}
 	return svc, node.ID
 }
+
+// The relay address is parsed twice: once here to reject a typo while the
+// operator is still looking at the field, and once by the subscription
+// generator, which falls back rather than failing. The two must agree on what
+// is acceptable, or a value saved here comes out meaning something else.
+func TestRelayAddressValidation(t *testing.T) {
+	for _, tc := range []struct {
+		address string
+		ok      bool
+	}{
+		{"", true},
+		{"relay.example.net", true},
+		{"relay.example.net:443", true},
+		{"203.0.113.9", true},
+		{"203.0.113.9:8443", true},
+		{"[2001:db8::1]:443", true},
+		{"2001:db8::1", true}, // bare IPv6: colons, but no port
+		{"relay.example.net:abc", false},
+		{"relay.example.net:0", false},
+		{"relay.example.net:99999", false},
+		{":443", false},
+	} {
+		err := CheckRelayAddress(tc.address)
+		if tc.ok && err != nil {
+			t.Errorf("%q rejected: %v", tc.address, err)
+		}
+		if !tc.ok && err == nil {
+			t.Errorf("%q accepted, want a complaint", tc.address)
+		}
+	}
+}

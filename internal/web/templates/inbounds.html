@@ -15,8 +15,8 @@
              pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,31}"></label>
       <label>端口<input name="port" type="number" min="1" max="65535" required
              value="443" style="min-width:6rem"></label>
-      <label>连接地址（留空 = 节点地址）
-        <input name="address" placeholder="{{.Node.Address}}" style="min-width:13rem"></label>
+      <label>连接地址（留空 = 节点地址；可带端口）
+        <input name="address" placeholder="{{.Node.Address}}" style="min-width:15rem"></label>
 
       <label id="f-handshake">Reality 握手站点
         <input name="handshake" value="{{.DefaultHandshake}}"></label>
@@ -93,9 +93,9 @@ onProto(document.querySelector('select[name=protocol]').value);
             <label>tag<input value="{{.Tag}}" disabled style="opacity:.5"></label>
             <label>端口<input name="port" type="number" min="1" max="65535" required
                    value="{{.Port}}" style="min-width:6rem"></label>
-            <label>连接地址（留空 = 节点地址）
+            <label>连接地址（留空 = 节点地址；可带端口）
               <input name="address" value="{{.Address}}"
-                     placeholder="{{$.Node.Address}}" style="min-width:13rem"></label>
+                     placeholder="{{$.Node.Address}}" style="min-width:15rem"></label>
             {{if $.EditHandshake}}
               <label>Reality 握手站点
                 <input name="handshake" required value="{{$.HandshakeValue}}"></label>
@@ -113,7 +113,10 @@ onProto(document.querySelector('select[name=protocol]').value);
             Reality 密钥对、short id、Shadowsocks 服务端 PSK 都会原样保留，
             已发出去的订阅不会失效。改端口会重建监听，该节点上所有连接会断一次；
             <strong>只改连接地址不会</strong> —— 节点根本看不到这个字段，它只决定订阅里
-            让客户端连哪里。中转机（realm 之类）把这个端口透传到节点时，填中转机的地址。
+            让客户端连哪里。<br>
+            中转机（realm 之类）填 <code>relay.example.net:443</code> ——
+            <strong>带上中转机监听的端口</strong>，那正是中转的意义所在（节点自己拿不到 443）。
+            不带端口就表示中转机监听的端口和节点一样。
           </p>
         </td>
       </tr>
@@ -122,9 +125,11 @@ onProto(document.querySelector('select[name=protocol]').value);
         <td>{{.Tag}}</td>
         <td class="dim">{{.Protocol}}</td>
         <td class="num">{{.Port}}</td>
+        {{/* What a client is told to dial, which is not always where the node
+             listens: a relay puts this inbound on a port the node cannot have. */}}
         <td class="dim">
           {{if .Address}}{{.Address}}<span class="pill live" style="margin-left:.35rem">中转</span>
-          {{else}}{{$.Node.Address}}{{end}}
+          {{else}}{{$.Node.Address}}:{{.Port}}{{end}}
         </td>
         <td>{{if .Enabled}}<span class="pill ok">启用</span>
             {{else}}<span class="pill off">停用</span>{{end}}

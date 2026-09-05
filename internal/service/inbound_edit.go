@@ -2,6 +2,8 @@ package service
 
 import (
 	"encoding/json"
+	"net"
+	"strconv"
 	"strings"
 
 	"github.com/kosje/skysbx-panel/internal/store"
@@ -44,6 +46,9 @@ func (s *Service) EditInbound(id int64, e InboundEdit) (*store.Inbound, error) {
 	}
 	if e.Port < 1 || e.Port > 65535 {
 		return nil, invalid("port %d out of range", e.Port)
+	}
+	if err := CheckRelayAddress(e.Address); err != nil {
+		return nil, err
 	}
 
 	sb, err := ParseConfig(in)
@@ -119,6 +124,38 @@ func (s *Service) EditInbound(id int64, e InboundEdit) (*store.Inbound, error) {
 		s.notify.ConfigChanged(in.NodeID)
 	}
 	return in, nil
+}
+
+// CheckRelayAddress rejects an address the subscription generator would end up
+// quietly reinterpreting.
+//
+// It parses the same way the generator does, and the generator falls back to
+// the node's port when it cannot make sense of what follows the colon. That is
+// the right behaviour there — a subscription must still be servable — and the
+// wrong behaviour here, where a typo should come back as an error while the
+// operator is still looking at the field.
+func CheckRelayAddress(address string) error {
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return nil
+	}
+	host, portStr, err := net.SplitHostPort(address)
+	if err != nil {
+		// No colon at all, or a bare IPv6 literal. Both are a host on the
+		// inbound's own port, which is fine.
+		if strings.Count(address, ":") <= 1 && strings.Contains(address, ":") {
+			return invalid("relay address %q: expected host or host:port", address)
+		}
+		return nil
+	}
+	if host == "" {
+		return invalid("relay address %q has no host", address)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 1 || port > 65535 {
+		return invalid("relay address %q: %q is not a port", address, portStr)
+	}
+	return nil
 }
 
 // InboundEditFields is what the edit form should show for a protocol, so the

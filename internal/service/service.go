@@ -281,6 +281,9 @@ func (s *Service) CreateInbound(nodeID int64, spec InboundSpec) (*store.Inbound,
 	in.NodeID = nodeID
 	// Not part of BuildInbound: this changes nothing the node is sent, only
 	// what subscriptions point at.
+	if err := CheckRelayAddress(spec.Address); err != nil {
+		return nil, err
+	}
 	in.Address = strings.TrimSpace(spec.Address)
 	if err := s.st.CreateInbound(in); err != nil {
 		return nil, err

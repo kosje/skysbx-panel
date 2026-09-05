@@ -9,6 +9,9 @@ package sub
 
 import (
 	"fmt"
+	"net"
+	"strconv"
+	"strings"
 
 	"github.com/kosje/skysbx-panel/internal/service"
 	"github.com/kosje/skysbx-panel/internal/store"
@@ -81,9 +84,9 @@ func Build(u *store.User, nodes []*store.Node, inbounds []*store.Inbound,
 		// An inbound may be reached through a relay on a different host, in
 		// which case that is what clients dial and the node's own address
 		// never appears.
-		address := in.Address
-		if address == "" {
-			address = node.Address
+		address, port := node.Address, in.Port
+		if in.Address != "" {
+			address, port = relayTarget(in.Address, in.Port)
 		}
 
 		e := Entry{
@@ -91,7 +94,7 @@ func Build(u *store.User, nodes []*store.Node, inbounds []*store.Inbound,
 			Label:    label(in.Tag, u, nowFunc()),
 			Protocol: in.Protocol,
 			Address:  address,
-			Port:     in.Port,
+			Port:     port,
 			SNI:      client.SNI,
 			FP:       client.FP,
 			PBK:      client.PBK,
@@ -117,4 +120,25 @@ func Build(u *store.User, nodes []*store.Node, inbounds []*store.Inbound,
 		out = append(out, e)
 	}
 	return out, nil
+}
+
+// relayTarget splits an inbound's relay address into what a client dials.
+//
+// The port is the point of the whole field. A relay exists to put the inbound
+// on a port the node cannot have — usually 443, because that is the one port
+// every network lets through — so "relay.example.net:443" has to mean 443 and
+// not the node's own listen port. Without a port it is just a different host
+// for the same port, which is the other thing relays are used for.
+func relayTarget(address string, nodePort int) (string, int) {
+	host, portStr, err := net.SplitHostPort(address)
+	if err != nil {
+		// No port, or an IPv6 literal written without brackets. Either way
+		// there is nothing to override.
+		return strings.Trim(address, "[]"), nodePort
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 1 || port > 65535 {
+		return host, nodePort
+	}
+	return host, port
 }

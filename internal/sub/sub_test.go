@@ -612,11 +612,55 @@ func TestRelayAddressOverridesTheNode(t *testing.T) {
 		}
 	}
 
-	// The port is the node's. A relay forwards it through unchanged; anything
-	// else would need a second field and a way to keep the two in step.
+	// No port given means the relay listens on the node's port.
 	for _, e := range entries {
 		if e.Name == relayed.Tag && e.Port != relayed.Port {
-			t.Errorf("relayed port is %d, want %d", e.Port, relayed.Port)
+			t.Errorf("relayed port is %d, want the node's %d", e.Port, relayed.Port)
+		}
+	}
+}
+
+// The port is the point of a relay: it exists to put an inbound on a port the
+// node cannot have, usually 443. An address that carried only the host would
+// force the relay to listen on the node's own port number, which is the one
+// thing the relay was set up to avoid.
+func TestRelayAddressCanCarryAPort(t *testing.T) {
+	for _, tc := range []struct {
+		address  string
+		wantHost string
+		wantPort int
+	}{
+		{"relay.example.net:443", "relay.example.net", 443},
+		{"relay.example.net", "relay.example.net", 8443},
+		{"203.0.113.9:8443", "203.0.113.9", 8443},
+		{"[2001:db8::1]:443", "2001:db8::1", 443},
+		// Bare IPv6 has colons of its own; treating the last one as a port
+		// would hand out an address that does not resolve.
+		{"2001:db8::1", "2001:db8::1", 8443},
+		// Junk after the colon falls back rather than emitting port 0.
+		{"relay.example.net:abc", "relay.example.net", 8443},
+		{"relay.example.net:99999", "relay.example.net", 8443},
+	} {
+		u, nodes, inbounds := fixture(t)
+		relayed := inbounds[1] // port 8443
+		relayed.Address = tc.address
+
+		entries, err := Build(u, nodes, inbounds, nil)
+		if err != nil {
+			t.Fatalf("%s: build: %v", tc.address, err)
+		}
+		var got *Entry
+		for i := range entries {
+			if entries[i].Name == relayed.Tag {
+				got = &entries[i]
+			}
+		}
+		if got == nil {
+			t.Fatalf("%s: no entry", tc.address)
+		}
+		if got.Address != tc.wantHost || got.Port != tc.wantPort {
+			t.Errorf("%s -> %s:%d, want %s:%d",
+				tc.address, got.Address, got.Port, tc.wantHost, tc.wantPort)
 		}
 	}
 }
