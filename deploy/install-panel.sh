@@ -105,10 +105,19 @@ if [ -n "$SRC_DIR" ]; then
     ok "using $SRC_DIR"
 else
     URL="https://github.com/${GH_OWNER}/skysbx-panel.git"
-    [ -n "$GH_TOKEN" ] && URL="https://${GH_TOKEN}@github.com/${GH_OWNER}/skysbx-panel.git"
     rm -rf "$BUILD/skysbx-panel"
-    git clone -q --branch "$REF" --depth 1 "$URL" "$BUILD/skysbx-panel" \
-        || die "cannot clone ${GH_OWNER}/skysbx-panel (a private repo needs GITHUB_TOKEN)"
+    # The token goes in a per-command header, not in the URL: git writes the
+    # remote URL into the clone's .git/config, and a token in it would sit on
+    # disk for as long as the build directory does.
+    if [ -n "$GH_TOKEN" ]; then
+        git -c "http.extraHeader=Authorization: Basic $(printf 'x-access-token:%s' \
+            "$GH_TOKEN" | base64 -w0)" \
+            clone -q --branch "$REF" --depth 1 "$URL" "$BUILD/skysbx-panel" \
+            || die "cannot clone ${GH_OWNER}/skysbx-panel (check GITHUB_TOKEN)"
+    else
+        git clone -q --branch "$REF" --depth 1 "$URL" "$BUILD/skysbx-panel" \
+            || die "cannot clone ${GH_OWNER}/skysbx-panel (a private repo needs GITHUB_TOKEN)"
+    fi
     ok "$(git -C "$BUILD/skysbx-panel" rev-parse --short HEAD)"
 fi
 
