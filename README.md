@@ -36,6 +36,40 @@ sing-box 的任何代码，所以许可可以自选。
 
 TLS 由面板自己用 ACME 处理，不需要前置反向代理。备份就是拷一个文件。
 
+## 安装
+
+### 面板
+
+```bash
+git clone https://github.com/kosje/skysb-panel.git
+cd skysb-panel
+sudo ./deploy/install-panel.sh --domain panel.example.com --email you@example.com
+```
+
+需要 `80` 和 `443` 空闲 —— 面板自己终止 TLS、自己应答 ACME 挑战，**没有反向代理要装、要配、要保持同步**。域名必须已解析到本机且未套 CDN(HTTP-01 挑战要直连)。
+
+装完打开 `https://panel.example.com/setup` 建管理员。
+
+### 节点
+
+在面板里 **Nodes → 新增**，复制那个只显示一次的接入 token，然后在新服务器上：
+
+```bash
+git clone https://github.com/kosje/skysb-node.git
+cd skysb-node
+sudo ./deploy/install-node.sh --panel https://panel.example.com --token <token>
+```
+
+不带参数就是交互式。节点**主动连面板**，所以它不需要开放任何控制端口、不需要面板能路由到它，NAT 后面也能用。
+
+`--domain` 是可选的：只有 AnyTLS 需要证书，Reality 和 Shadowsocks 都不需要。给了域名脚本就用 certbot 签证书(`--cf-token` 可走 DNS-01)；不给就只跑另外两个协议。
+
+> 节点域名必须是 **DNS-only(灰云)**。三个协议都不是 HTTP，套 CDN 会全部失效。
+
+### 私有仓库
+
+两个仓库如果是私有的，`export GITHUB_TOKEN=...` 后再跑脚本即可。也可以用 `--src` / `--fork` 指向本地已有的检出，完全离线安装。
+
 ## 开发
 
 ```bash

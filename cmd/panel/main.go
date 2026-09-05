@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -27,6 +28,11 @@ func main() {
 		logLevel = flag.String("log", "info", "log level: debug, info, warn, error")
 		insecure = flag.Bool("insecure-cookies", false,
 			"send session cookies without the Secure flag (plain HTTP; development only)")
+		domain = flag.String("domain", "",
+			"serve HTTPS for this domain, obtaining a certificate over ACME. "+
+				"Needs ports 80 and 443, and the domain must already resolve here")
+		acmeEmail = flag.String("acme-email", "",
+			"contact address for the certificate authority (recommended)")
 	)
 	flag.Parse()
 
@@ -52,7 +58,9 @@ func main() {
 	// to localhost for development implies insecure cookies. Anything else has
 	// to say so explicitly, which keeps the unsafe choice visible in the
 	// command line rather than inferred.
-	secureCookies := !*insecure && !isLoopback(*addr)
+	// Serving ACME TLS means HTTPS, so the cookie must be Secure regardless of
+	// what -addr looks like.
+	secureCookies := *domain != "" || (!*insecure && !isLoopback(*addr))
 
 	srv, err := web.New(svc, nodeHub, log, secureCookies)
 	if err != nil {
@@ -65,8 +73,12 @@ func main() {
 			"url", "http://"+*addr+"/setup")
 	}
 
+	listenAddr := *addr
+	if *domain != "" {
+		listenAddr = ":443"
+	}
 	httpSrv := &http.Server{
-		Addr:              *addr,
+		Addr:              listenAddr,
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
@@ -75,9 +87,42 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	var redirectSrv *http.Server
+	if *domain != "" {
+		tlsCfg, err := web.TLSConfig(*domain, *acmeEmail, filepath.Dir(*dbPath))
+		if err != nil {
+			log.Error("automatic TLS", "domain", *domain, "error", err)
+			os.Exit(1)
+		}
+		httpSrv.TLSConfig = tlsCfg
+
+		// Port 80 answers the ACME challenge and redirects everything else.
+		// The challenge handler has to come first: answering it with a redirect
+		// is how renewals fail three months after anyone last looked.
+		redirectSrv = &http.Server{
+			Addr:              ":80",
+			Handler:           web.ChallengeAndRedirect(*domain),
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		go func() {
+			if err := redirectSrv.ListenAndServe(); err != nil &&
+				!errors.Is(err, http.ErrServerClosed) {
+				log.Error("listen on :80", "error", err)
+				stop()
+			}
+		}()
+	}
+
 	go func() {
-		log.Info("listening", "addr", *addr, "secure_cookies", secureCookies)
-		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Info("listening", "addr", listenAddr, "tls", *domain != "",
+			"secure_cookies", secureCookies || *domain != "")
+		var err error
+		if *domain != "" {
+			err = httpSrv.ListenAndServeTLS("", "")
+		} else {
+			err = httpSrv.ListenAndServe()
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("listen", "error", err)
 			stop()
 		}
@@ -88,6 +133,9 @@ func main() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	if redirectSrv != nil {
+		redirectSrv.Shutdown(shutdownCtx)
+	}
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		log.Warn("shutdown", "error", err)
 	}
