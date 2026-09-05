@@ -581,3 +581,42 @@ func TestSingBoxDNSUsesTheCurrentServerFormat(t *testing.T) {
 		}
 	}
 }
+
+// An inbound reached through a relay on another host has to advertise the
+// relay, not the node. The node's own address is what every other inbound on it
+// uses, so this is per inbound rather than per node.
+func TestRelayAddressOverridesTheNode(t *testing.T) {
+	u, nodes, inbounds := fixture(t)
+	relayed := inbounds[1]
+	relayed.Address = "relay.example.net"
+
+	entries, err := Build(u, nodes, inbounds, nil)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	seen := map[string]string{}
+	for _, e := range entries {
+		seen[e.Name] = e.Address
+	}
+	if got := seen[relayed.Tag]; got != "relay.example.net" {
+		t.Errorf("relayed inbound advertises %q, want the relay", got)
+	}
+	for _, in := range inbounds {
+		if in.ID == relayed.ID {
+			continue
+		}
+		if got := seen[in.Tag]; got != nodes[0].Address {
+			t.Errorf("%s advertises %q, want the node's own address %q",
+				in.Tag, got, nodes[0].Address)
+		}
+	}
+
+	// The port is the node's. A relay forwards it through unchanged; anything
+	// else would need a second field and a way to keep the two in step.
+	for _, e := range entries {
+		if e.Name == relayed.Tag && e.Port != relayed.Port {
+			t.Errorf("relayed port is %d, want %d", e.Port, relayed.Port)
+		}
+	}
+}

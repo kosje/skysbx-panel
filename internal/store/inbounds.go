@@ -5,12 +5,12 @@ import (
 	"fmt"
 )
 
-const inboundCols = `id, node_id, tag, protocol, port, config, client, enabled`
+const inboundCols = `id, node_id, tag, protocol, port, address, config, client, enabled`
 
 func scanInbound(sc interface{ Scan(...any) error }) (*Inbound, error) {
 	var in Inbound
 	if err := sc.Scan(&in.ID, &in.NodeID, &in.Tag, &in.Protocol, &in.Port,
-		&in.Config, &in.Client, &in.Enabled); err != nil {
+		&in.Address, &in.Config, &in.Client, &in.Enabled); err != nil {
 		return nil, err
 	}
 	return &in, nil
@@ -18,9 +18,10 @@ func scanInbound(sc interface{ Scan(...any) error }) (*Inbound, error) {
 
 func (s *Store) CreateInbound(in *Inbound) error {
 	res, err := s.db.Exec(`INSERT INTO inbounds
-		(node_id, tag, protocol, port, config, client, enabled)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		in.NodeID, in.Tag, in.Protocol, in.Port, in.Config, in.Client, in.Enabled)
+		(node_id, tag, protocol, port, address, config, client, enabled)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		in.NodeID, in.Tag, in.Protocol, in.Port, in.Address,
+		in.Config, in.Client, in.Enabled)
 	if err != nil {
 		return asConflict(fmt.Errorf("create inbound %q: %w", in.Tag, err))
 	}
@@ -133,9 +134,10 @@ func (s *Store) NodeInboundsByID(nodeID int64) ([]*Inbound, error) {
 
 func (s *Store) UpdateInbound(in *Inbound) error {
 	res, err := s.db.Exec(`UPDATE inbounds SET
-		tag = ?, protocol = ?, port = ?, config = ?, client = ?, enabled = ?
+		tag = ?, protocol = ?, port = ?, address = ?, config = ?, client = ?, enabled = ?
 		WHERE id = ?`,
-		in.Tag, in.Protocol, in.Port, in.Config, in.Client, in.Enabled, in.ID)
+		in.Tag, in.Protocol, in.Port, in.Address,
+		in.Config, in.Client, in.Enabled, in.ID)
 	if err != nil {
 		return asConflict(fmt.Errorf("update inbound %d: %w", in.ID, err))
 	}

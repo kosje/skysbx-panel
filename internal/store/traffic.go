@@ -68,6 +68,44 @@ func (s *Store) TotalTrafficByDay(days int) ([]DailyUsage, error) {
 	return out, rows.Err()
 }
 
+// NodeUsage is one node's share of the traffic.
+type NodeUsage struct {
+	NodeID   int64
+	Up, Down int64
+	Recent   int64 // up+down over the window asked for
+}
+
+// TrafficByNode is every node's total, and its total over the last n days.
+//
+// Both, because they answer different questions: the lifetime figure is what a
+// bill is made of, and the recent one is what says which node is actually
+// carrying the load right now. Nothing prunes this table, so the lifetime sum
+// is exact rather than "since whenever the rows were last cleared".
+//
+// Nodes with no traffic are absent; the caller decides whether that is a zero
+// or an omission.
+func (s *Store) TrafficByNode(days int) (map[int64]NodeUsage, error) {
+	rows, err := s.db.Query(`
+		SELECT node_id,
+		       sum(up), sum(down),
+		       sum(CASE WHEN day > (unixepoch() / 86400) - ? THEN up + down ELSE 0 END)
+		FROM traffic GROUP BY node_id`, days)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := map[int64]NodeUsage{}
+	for rows.Next() {
+		var u NodeUsage
+		if err := rows.Scan(&u.NodeID, &u.Up, &u.Down, &u.Recent); err != nil {
+			return nil, err
+		}
+		out[u.NodeID] = u
+	}
+	return out, rows.Err()
+}
+
 // UserTrafficHistory returns the last n days for a user, most recent first,
 // summed across nodes.
 func (s *Store) UserTrafficHistory(userID int64, days int) ([]DailyUsage, error) {

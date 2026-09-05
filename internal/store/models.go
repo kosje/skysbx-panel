@@ -67,6 +67,15 @@ type Inbound struct {
 	Protocol string
 	Port     int
 
+	// Address is where clients should be told to connect for this inbound, when
+	// that is not the node's own address. The case it exists for is a relay:
+	// another host forwards a port straight through, so clients dial the relay
+	// and the node never appears in a subscription. That is a property of one
+	// inbound — the same node can have one port relayed and the rest direct.
+	//
+	// Empty means the node's address, which is almost every inbound.
+	Address string
+
 	// Config is the sing-box inbound object, with an empty users array. Users
 	// are pushed separately so they can be hot-swapped without rebuilding the
 	// listener.

@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -39,8 +40,21 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	if err := s.DB().QueryRow(`SELECT count(*) FROM schema_migrations`).Scan(&n); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if n != 1 {
-		t.Fatalf("expected 1 applied migration, got %d", n)
+	// Counted from the files rather than written down, so that adding a
+	// migration does not fail a test about idempotency for a reason that has
+	// nothing to do with idempotency.
+	files, err := migrationFS.ReadDir("migrations")
+	if err != nil {
+		t.Fatalf("read migrations: %v", err)
+	}
+	want := 0
+	for _, f := range files {
+		if !f.IsDir() && strings.HasSuffix(f.Name(), ".sql") {
+			want++
+		}
+	}
+	if n != want {
+		t.Fatalf("applied %d migrations, want %d — a second open re-ran one", n, want)
 	}
 }
 

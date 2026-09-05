@@ -45,8 +45,54 @@
   </div>
 
   <div class="card" style="margin-top:1rem">
-    <div class="k" style="margin-bottom:.5rem">近 14 天流量</div>
+    <div class="k" style="margin-bottom:.5rem">近 {{.Days}} 天流量</div>
     <div style="color:var(--accent)">{{.Chart}}</div>
+  </div>
+
+  {{/* A single total says how much and nothing else — not which node is
+       carrying it, not which one stopped. */}}
+  <div class="card">
+    <div class="k" style="margin-bottom:.6rem">各节点流量</div>
+    {{if not .NodeTraffic}}
+      <p class="dim" style="margin:.5rem">还没有节点。</p>
+    {{else}}
+    <table>
+      <thead><tr>
+        <th>节点</th><th>状态</th><th class="num">入站</th>
+        <th class="num">上行</th><th class="num">下行</th>
+        <th class="num">近 {{.Days}} 天</th><th class="num">累计</th><th class="num">占比</th>
+      </tr></thead>
+      <tbody>
+      {{range .NodeTraffic}}
+        <tr>
+          <td><a href="/nodes/{{.Node.ID}}/inbounds">{{.Node.Name}}</a>
+              <span class="dim">{{.Node.Country}}</span>
+              <div class="dim" style="font-size:.75rem">{{.Node.Address}}</div></td>
+          <td>{{if not .Node.Enabled}}<span class="pill off">已停用</span>
+              {{else if .Connected}}<span class="pill ok">在线</span>
+              {{else}}<span class="pill bad">离线</span>{{end}}</td>
+          <td class="num dim">{{.Inbounds}}</td>
+          <td class="num dim">{{bytes .Up}}</td>
+          <td class="num dim">{{bytes .Down}}</td>
+          <td class="num">{{bytes .Recent}}</td>
+          <td class="num">{{bytes .Total}}</td>
+          <td class="num dim">{{pct .Total $.LedgerTotal}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+      <tfoot><tr>
+        <td colspan="5" class="dim">合计</td>
+        <td class="num"></td>
+        <td class="num">{{bytes .LedgerTotal}}</td>
+        <td></td>
+      </tr></tfoot>
+    </table>
+    <p class="dim" style="margin:.8rem 0 0;font-size:.8rem">
+      这里的累计按<strong>节点</strong>记账，上面那个「累计流量」按<strong>用户</strong>记账。
+      删节点会带走它的记账行，删用户会带走用户的，所以两个数字会慢慢分开 ——
+      与其挑一个装作准确，不如两个都摆出来。
+    </p>
+    {{end}}
   </div>
 </main>
 {{template "foot" .}}

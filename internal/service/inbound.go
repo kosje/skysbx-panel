@@ -33,6 +33,12 @@ type InboundSpec struct {
 	KeyPath  string
 	// ServerName goes in the TLS handshake; normally the node's own domain.
 	ServerName string
+
+	// Address overrides what subscriptions tell clients to connect to for this
+	// inbound. Blank means the node's own address. It exists for relays: a
+	// separate host forwarding this port through to the node, which clients
+	// dial instead.
+	Address string
 }
 
 // ClientParams are the bits a client needs and the server does not: Reality's

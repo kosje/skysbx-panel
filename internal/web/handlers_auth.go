@@ -3,8 +3,10 @@ package web
 import (
 	"errors"
 	"net/http"
+	"sort"
 
 	"github.com/kosje/skysbx-panel/internal/service"
+	"github.com/kosje/skysbx-panel/internal/store"
 )
 
 func (s *Server) getSetup(w http.ResponseWriter, r *http.Request) {
@@ -125,10 +127,66 @@ func (s *Server) getDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Per node, because a single total answers "how much" and nothing else. It
+	// cannot say which node is carrying the load, which one stopped carrying
+	// any, or which one is about to need a bigger plan.
+	byNode, err := s.svc.NodeTraffic(dashboardDays)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	rows := make([]nodeTrafficRow, 0, len(nodes))
+	var ledgerTotal int64
+	for _, n := range nodes {
+		u := byNode[n.ID]
+		total := u.Up + u.Down
+		ledgerTotal += total
+		rows = append(rows, nodeTrafficRow{
+			Node: n, Up: u.Up, Down: u.Down, Total: total, Recent: u.Recent,
+			Connected: s.nodes.Connected(n.ID),
+			Inbounds:  countInbounds(inbounds, n.ID),
+		})
+	}
+	// Busiest first: the interesting node is the one at the top, and with more
+	// than a handful of them alphabetical order buries it.
+	sort.Slice(rows, func(i, j int) bool { return rows[i].Total > rows[j].Total })
+
 	s.page(w, "dashboard", map[string]any{
 		"Users": len(users), "ActiveUsers": active, "OnlineUsers": len(online),
 		"Nodes": len(nodes), "NodesUp": nodesUp, "Inbounds": len(inbounds),
 		"Traffic": totalTraffic,
 		"Chart":   trafficChart(history),
+
+		"NodeTraffic": rows,
+		"Days":        dashboardDays,
+		// The per-node ledger and the per-user totals are counted separately —
+		// deleting a node drops its rows, deleting a user drops theirs — so
+		// they drift apart. Showing both and letting the difference be visible
+		// beats picking one and being quietly wrong.
+		"LedgerTotal": ledgerTotal,
 	})
+}
+
+// dashboardDays is the window for the "recent" column, matching the chart above
+// it so the two are read together.
+const dashboardDays = 14
+
+type nodeTrafficRow struct {
+	Node      *store.Node
+	Up        int64
+	Down      int64
+	Total     int64
+	Recent    int64
+	Connected bool
+	Inbounds  int
+}
+
+func countInbounds(inbounds []*store.Inbound, nodeID int64) int {
+	n := 0
+	for _, in := range inbounds {
+		if in.NodeID == nodeID {
+			n++
+		}
+	}
+	return n
 }

@@ -1,0 +1,12 @@
+-- Where clients should be told to connect for this inbound, when that is not
+-- the node's own address.
+--
+-- The case this exists for is a relay: another host running something like
+-- realm forwards a port straight through to the node, so clients dial the
+-- relay and the node never appears in a subscription. That is a property of
+-- one inbound, not of the node — the same node can have one port relayed and
+-- the rest direct.
+--
+-- Empty means "use the node's address", which is what every existing row gets
+-- and what almost every row will keep.
+ALTER TABLE inbounds ADD COLUMN address TEXT NOT NULL DEFAULT '';

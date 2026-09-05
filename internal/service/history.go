@@ -43,6 +43,11 @@ func (s *Service) TrafficHistory(days int) ([]DailyTotal, error) {
 }
 
 // UserTrafficHistory is the same for one user.
+// NodeTraffic is what each node has carried: all time, and over the last days.
+func (s *Service) NodeTraffic(days int) (map[int64]store.NodeUsage, error) {
+	return s.st.TrafficByNode(days)
+}
+
 func (s *Service) UserTrafficHistory(userID int64, days int) ([]store.DailyUsage, error) {
 	return s.st.UserTrafficHistory(userID, days)
 }

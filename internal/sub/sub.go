@@ -78,11 +78,19 @@ func Build(u *store.User, nodes []*store.Node, inbounds []*store.Inbound,
 			return nil, err
 		}
 
+		// An inbound may be reached through a relay on a different host, in
+		// which case that is what clients dial and the node's own address
+		// never appears.
+		address := in.Address
+		if address == "" {
+			address = node.Address
+		}
+
 		e := Entry{
 			Name:     in.Tag,
 			Label:    label(in.Tag, u, nowFunc()),
 			Protocol: in.Protocol,
-			Address:  node.Address,
+			Address:  address,
 			Port:     in.Port,
 			SNI:      client.SNI,
 			FP:       client.FP,

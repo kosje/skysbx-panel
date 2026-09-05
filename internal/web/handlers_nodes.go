@@ -308,6 +308,7 @@ func (s *Server) createInbound(w http.ResponseWriter, r *http.Request) {
 		Protocol:   r.FormValue("protocol"),
 		Tag:        r.FormValue("tag"),
 		Port:       port,
+		Address:    strings.TrimSpace(r.FormValue("address")),
 		Handshake:  r.FormValue("handshake"),
 		CertPath:   strings.TrimSpace(r.FormValue("cert_path")),
 		KeyPath:    strings.TrimSpace(r.FormValue("key_path")),
@@ -397,6 +398,7 @@ func (s *Server) updateInbound(w http.ResponseWriter, r *http.Request) {
 	}
 	in, err := s.svc.EditInbound(id, service.InboundEdit{
 		Port:       port,
+		Address:    strings.TrimSpace(r.FormValue("address")),
 		Handshake:  r.FormValue("handshake"),
 		CertPath:   strings.TrimSpace(r.FormValue("cert_path")),
 		KeyPath:    strings.TrimSpace(r.FormValue("key_path")),

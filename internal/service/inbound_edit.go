@@ -16,6 +16,10 @@ import (
 type InboundEdit struct {
 	Port int
 
+	// Address overrides what subscriptions point at for this inbound. Blank
+	// means the node's own address.
+	Address string
+
 	// VLESS: the site whose handshake is borrowed. Reality's key pair is
 	// deliberately absent; see EditInbound.
 	Handshake string
@@ -97,17 +101,23 @@ func (s *Service) EditInbound(id int64, e InboundEdit) (*store.Inbound, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Compared before the fields are overwritten. The address is the one thing
+	// here the node never sees — it changes where clients are told to connect,
+	// not where anything listens — so an address-only edit must not cost every
+	// live connection on the node a listener rebuild.
+	nodeVisibleChange := in.Port != e.Port || in.Config != string(cfg)
+
 	in.Port = e.Port
 	in.Config = string(cfg)
 	in.Client = string(cl)
+	in.Address = strings.TrimSpace(e.Address)
 
 	if err := s.st.UpdateInbound(in); err != nil {
 		return nil, err
 	}
-	// A port or certificate change is a listener rebuild, so the node has to be
-	// told; connections on this node's other inbounds go with it, which is why
-	// this is a config push and not a user push.
-	s.notify.ConfigChanged(in.NodeID)
+	if nodeVisibleChange {
+		s.notify.ConfigChanged(in.NodeID)
+	}
 	return in, nil
 }
 
