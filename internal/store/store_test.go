@@ -280,3 +280,108 @@ func TestDuplicatesReportConflict(t *testing.T) {
 		t.Fatalf("duplicate inbound tag should be ErrConflict, got %v", err)
 	}
 }
+
+// The stored figure is the peak, not the average. An account that opens two
+// hundred connections for ten minutes an hour averages to nothing, and the ten
+// minutes are what the operator is looking for.
+func TestActivityKeepsThePeak(t *testing.T) {
+	s := openTemp(t)
+	n := &Node{Name: "n1", TokenHash: "h", Address: "a", Enabled: true}
+	if err := s.CreateNode(n); err != nil {
+		t.Fatal(err)
+	}
+	u := &User{Name: "u", VlessUUID: "x", Password: "p", SSPassword: "s",
+		SubToken: "st", Enabled: true}
+	if err := s.CreateUser(u); err != nil {
+		t.Fatal(err)
+	}
+
+	hour := time.Now().Unix() / 3600
+	for _, sample := range []ActivitySample{
+		{UserID: u.ID, Conns: 5, Peers: 3, Ports: 2, IPs: 1},
+		{UserID: u.ID, Conns: 200, Peers: 180, Ports: 90, IPs: 2}, // the burst
+		{UserID: u.ID, Conns: 4, Peers: 2, Ports: 2, IPs: 1},
+	} {
+		if err := s.RecordActivity(n.ID, hour, []ActivitySample{sample}); err != nil {
+			t.Fatalf("record: %v", err)
+		}
+	}
+
+	rows, err := s.UserActivity(u.ID, 24)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("got %d rows, want one per node per hour", len(rows))
+	}
+	r := rows[0]
+	if r.Conns != 200 || r.Peers != 180 || r.Ports != 90 || r.IPs != 2 {
+		t.Errorf("row is %+v, want the peak of each column", r)
+	}
+	if r.Samples != 3 {
+		t.Errorf("samples = %d, want 3", r.Samples)
+	}
+}
+
+// This is the one table that grows with users × nodes × hours, so it is the one
+// that has to be swept.
+func TestActivityIsPruned(t *testing.T) {
+	s := openTemp(t)
+	n := &Node{Name: "n1", TokenHash: "h", Address: "a", Enabled: true}
+	if err := s.CreateNode(n); err != nil {
+		t.Fatal(err)
+	}
+	u := &User{Name: "u", VlessUUID: "x", Password: "p", SSPassword: "s",
+		SubToken: "st", Enabled: true}
+	if err := s.CreateUser(u); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().Unix() / 3600
+	for _, h := range []int64{now, now - 100, now - 1000} {
+		if err := s.RecordActivity(n.ID, h, []ActivitySample{{UserID: u.ID, Conns: 1}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.PruneActivity(200); err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+
+	var count int
+	if err := s.DB().QueryRow(`SELECT count(*) FROM user_activity`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Errorf("%d rows survived a 200-hour window, want 2", count)
+	}
+}
+
+// Deleting a user has to take their activity with them: it is a record about a
+// person, and it should not outlive the account.
+func TestActivityGoesWithTheUser(t *testing.T) {
+	s := openTemp(t)
+	n := &Node{Name: "n1", TokenHash: "h", Address: "a", Enabled: true}
+	if err := s.CreateNode(n); err != nil {
+		t.Fatal(err)
+	}
+	u := &User{Name: "u", VlessUUID: "x", Password: "p", SSPassword: "s",
+		SubToken: "st", Enabled: true}
+	if err := s.CreateUser(u); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordActivity(n.ID, time.Now().Unix()/3600,
+		[]ActivitySample{{UserID: u.ID, Conns: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteUser(u.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	var count int
+	if err := s.DB().QueryRow(`SELECT count(*) FROM user_activity`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("%d activity rows outlived the deleted user", count)
+	}
+}

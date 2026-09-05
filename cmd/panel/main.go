@@ -146,6 +146,23 @@ func main() {
 		}
 	}
 
+	// The activity digest grows with users × nodes × hours and nothing else in
+	// the schema does, so it is the one table that needs sweeping. Once at
+	// startup and daily after: a panel that is restarted often would otherwise
+	// never reach the timer.
+	go func() {
+		for {
+			if err := svc.PruneActivity(); err != nil {
+				log.Warn("prune activity", "error", err)
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(24 * time.Hour):
+			}
+		}
+	}()
+
 	go func() {
 		log.Info("listening", "addr", listenAddr, "tls", *domain != "",
 			"secure_cookies", secureCookies || *domain != "")

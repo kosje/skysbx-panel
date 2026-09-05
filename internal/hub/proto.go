@@ -106,6 +106,17 @@ type SystemStats struct {
 type OnlineData struct {
 	Users []string       `json:"users"`
 	IPs   map[string]int `json:"ips,omitempty"`
+
+	// Activity is the shape of what each user is doing — connections, distinct
+	// destinations, distinct ports. Counts only; the node does not report where
+	// anyone went and the panel does not store it.
+	Activity map[string]Activity `json:"activity,omitempty"`
+}
+
+type Activity struct {
+	Conns int `json:"conns"`
+	Peers int `json:"peers"`
+	Ports int `json:"ports"`
 }
 
 // StateData is the node's own account of what it is serving, sent after every

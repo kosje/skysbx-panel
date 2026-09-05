@@ -20,6 +20,9 @@ func templateFuncs() template.FuncMap {
 		// putting "—" in a date input silently clears the date on save.
 		"dateval": dateValue,
 		"gibval":  gibValue,
+
+		"hour": func(t time.Time) string { return t.Format("01-02 15:04") },
+		"div":  func(a, b int) int { return a / b },
 	}
 }
 

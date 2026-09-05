@@ -237,6 +237,21 @@ func (h *Hub) dispatch(ctx context.Context, c *conn, data []byte) error {
 			ips[name] = n
 		}
 		c.ips.Store(&ips)
+
+		// Folded into the hour it belongs to. The report is every thirty
+		// seconds and the row keeps the peak, so a burst is not averaged away
+		// by the quiet minutes around it.
+		if len(o.Activity) > 0 {
+			byName := make(map[string]service.Activity, len(o.Activity))
+			for name, a := range o.Activity {
+				byName[name] = service.Activity{
+					Conns: a.Conns, Peers: a.Peers, Ports: a.Ports, IPs: ips[name],
+				}
+			}
+			if err := h.svc.RecordActivity(c.nodeID, byName); err != nil {
+				h.log.Warn("record activity", "node", c.nodeID, "error", err)
+			}
+		}
 		return nil
 
 	case TypeState:

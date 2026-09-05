@@ -130,6 +130,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /users/{id}/toggle", s.auth(http.HandlerFunc(s.toggleUser)))
 	mux.Handle("POST /users/{id}/reset", s.auth(http.HandlerFunc(s.resetUser)))
 	mux.Handle("DELETE /users/{id}", s.auth(http.HandlerFunc(s.deleteUser)))
+	mux.Handle("GET /users/{id}/activity", s.auth(http.HandlerFunc(s.getUserActivity)))
 	mux.Handle("GET /users/{id}/access", s.auth(http.HandlerFunc(s.getUserAccess)))
 	mux.Handle("POST /users/{id}/access", s.auth(http.HandlerFunc(s.setUserAccess)))
 

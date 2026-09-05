@@ -1,0 +1,61 @@
+{{define "activity"}}
+{{template "head" .}}
+{{template "nav" .}}
+<main>
+  <h1><a href="/users" class="dim">用户</a> / {{.User.Name}} 的活动</h1>
+
+  <div class="card stats">
+    <div class="stat"><div class="n">{{.LiveIPs}}</div><div class="k">当前来源 IP</div></div>
+    <div class="stat"><div class="n">{{.Peak.Peers}}</div><div class="k">近 {{div .Hours 24}} 天峰值目标数</div></div>
+    <div class="stat"><div class="n">{{.Peak.Conns}}</div><div class="k">峰值并发连接</div></div>
+    <div class="stat"><div class="n">{{bytes .User.TrafficUsed}}</div><div class="k">累计流量</div></div>
+  </div>
+
+  {{/* Said before the numbers, because a page like this invites reading a
+       verdict into a threshold that is only a hint. */}}
+  <div class="card">
+    <p class="dim" style="margin:0;font-size:.85rem">
+      这里记的是<strong>形态</strong>，不是去向 —— 并发连接数、不同目标地址数、不同目标端口数、来源 IP 数。
+      <strong>不记录任何人访问了什么网站</strong>，节点不上报、面板不存储。<br>
+      为什么形态就够：浏览器打开一个页面会连到个位数的主机；BT 客户端会尽可能多地连
+      peer。所以「目标数」比协议特征可靠得多 —— 它不在乎载荷有没有加密。
+      大流量下载和长时间跑测速则是「少目标 + 高流量」，配合流量列一起看。<br>
+      每小时一行，<strong>取该小时内的峰值</strong>：突发两百条连接十分钟，按平均算会被
+      抹平，而那十分钟正是要找的东西。数据保留 {{.Retention}} 天。
+    </p>
+  </div>
+
+  <div class="card">
+    {{if not .Rows}}
+      <p class="dim" style="margin:.5rem">这段时间没有活动记录。</p>
+    {{else}}
+    <table>
+      <thead><tr>
+        <th>时间</th><th>节点</th>
+        <th class="num">并发连接</th><th class="num">目标地址</th>
+        <th class="num">目标端口</th><th class="num">来源 IP</th><th></th>
+      </tr></thead>
+      <tbody>
+      {{range .Rows}}
+        <tr>
+          <td class="dim">{{hour .When}}</td>
+          <td>{{.Node}}</td>
+          <td class="num">{{.Conns}}</td>
+          <td class="num">{{.Peers}}</td>
+          <td class="num dim">{{.Ports}}</td>
+          <td class="num dim">{{.IPs}}</td>
+          <td>{{if .Busy}}<span class="pill warn-pill">目标数偏高</span>{{end}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    <p class="dim" style="margin:.8rem 0 0;font-size:.8rem">
+      「目标数偏高」是指该小时内某个采样点连到了 {{.Threshold}} 个以上不同地址。
+      <strong>这是提示，不是结论</strong> —— 开几十个标签页的人也会越线。
+      要处理的话回<a href="/users">用户</a>页停用或删除。
+    </p>
+    {{end}}
+  </div>
+</main>
+{{template "foot" .}}
+{{end}}

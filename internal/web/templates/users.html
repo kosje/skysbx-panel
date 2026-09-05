@@ -71,6 +71,7 @@
         <td>
           {{.Name}}{{if .Note}}<div class="dim" style="font-size:.8rem">{{.Note}}</div>{{end}}
           <div style="font-size:.75rem;margin-top:.2rem">
+            <a href="/users/{{.ID}}/activity">活动</a>
             <a class="dim" href="/sub/{{.SubToken}}" target="_blank" rel="noopener">订阅页</a>
             <button class="ghost" style="font-size:.7rem;padding:.1rem .35rem"
                     onclick="copySub(this,'{{.SubToken}}')">复制链接</button>
