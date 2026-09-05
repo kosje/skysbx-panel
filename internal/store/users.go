@@ -139,6 +139,30 @@ func (s *Store) UserInboundIDs(userID int64) ([]int64, error) {
 	return out, rows.Err()
 }
 
+// UserInboundMap returns every restriction in one query, keyed by user. A user
+// absent from the map is unrestricted. Building the push for a node touches
+// every user, so doing this per user would be an N+1 on the hot path.
+func (s *Store) UserInboundMap() (map[int64]map[int64]bool, error) {
+	rows, err := s.db.Query(`SELECT user_id, inbound_id FROM user_inbounds`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := map[int64]map[int64]bool{}
+	for rows.Next() {
+		var userID, inboundID int64
+		if err := rows.Scan(&userID, &inboundID); err != nil {
+			return nil, err
+		}
+		if out[userID] == nil {
+			out[userID] = map[int64]bool{}
+		}
+		out[userID][inboundID] = true
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) SetUserInbounds(userID int64, inboundIDs []int64) error {
 	tx, err := s.db.Begin()
 	if err != nil {

@@ -59,6 +59,12 @@ const SSMethod = "2022-blake3-aes-256-gcm"
 // DefaultHandshake is a site that reliably speaks TLS 1.3 + H2.
 const DefaultHandshake = "www.microsoft.com:443"
 
+// FlowVision is the only VLESS flow this panel emits. It has to be identical in
+// the inbound's client parameters and in every user pushed to that inbound: a
+// mismatch is rejected at handshake time as "flow mismatch", which reads like a
+// client problem rather than a panel one.
+const FlowVision = "xtls-rprx-vision"
+
 // BuildInbound turns a spec into a stored inbound: the sing-box config to send
 // the node, and the client parameters to put in subscriptions.
 func BuildInbound(spec InboundSpec) (*store.Inbound, error) {
@@ -97,7 +103,7 @@ func BuildInbound(spec InboundSpec) (*store.Inbound, error) {
 			},
 		}
 		client = ClientParams{SNI: host, PBK: pub, SID: shortID, FP: "chrome",
-			Flow: "xtls-rprx-vision"}
+			Flow: FlowVision}
 
 	case store.ProtoAnyTLS:
 		if spec.CertPath == "" || spec.KeyPath == "" {
