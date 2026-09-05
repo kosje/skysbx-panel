@@ -17,7 +17,11 @@ import (
 // Entry is one connectable endpoint: a user's credentials against one inbound
 // on one node.
 type Entry struct {
-	Name     string // what the client displays; the inbound tag, which is unique
+	Name string // the inbound tag: unique, stable, and what proxies are named
+	// Label is what a client's server list shows: the tag plus whose account
+	// this is and what is left of it. Only the link-list format uses it; see
+	// label() for why the other two keep the tag.
+	Label    string
 	Protocol string
 	Address  string // the node's client-facing address
 	Port     int
@@ -76,6 +80,7 @@ func Build(u *store.User, nodes []*store.Node, inbounds []*store.Inbound,
 
 		e := Entry{
 			Name:     in.Tag,
+			Label:    label(node.Name, in.Tag, u, nowFunc()),
 			Protocol: in.Protocol,
 			Address:  node.Address,
 			Port:     in.Port,

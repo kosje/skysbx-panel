@@ -121,6 +121,8 @@ func (s *Server) Handler() http.Handler {
 
 	mux.Handle("GET /users", s.auth(http.HandlerFunc(s.listUsers)))
 	mux.Handle("POST /users", s.auth(http.HandlerFunc(s.createUser)))
+	mux.Handle("GET /users/{id}/edit", s.auth(http.HandlerFunc(s.editUser)))
+	mux.Handle("POST /users/{id}", s.auth(http.HandlerFunc(s.updateUser)))
 	mux.Handle("POST /users/{id}/toggle", s.auth(http.HandlerFunc(s.toggleUser)))
 	mux.Handle("POST /users/{id}/reset", s.auth(http.HandlerFunc(s.resetUser)))
 	mux.Handle("DELETE /users/{id}", s.auth(http.HandlerFunc(s.deleteUser)))
@@ -129,11 +131,17 @@ func (s *Server) Handler() http.Handler {
 
 	mux.Handle("GET /nodes", s.auth(http.HandlerFunc(s.listNodes)))
 	mux.Handle("POST /nodes", s.auth(http.HandlerFunc(s.createNode)))
+	mux.Handle("GET /nodes/{id}/edit", s.auth(http.HandlerFunc(s.editNode)))
+	mux.Handle("POST /nodes/{id}", s.auth(http.HandlerFunc(s.updateNode)))
+	mux.Handle("POST /nodes/{id}/toggle", s.auth(http.HandlerFunc(s.toggleNode)))
 	mux.Handle("POST /nodes/{id}/rotate", s.auth(http.HandlerFunc(s.rotateNode)))
 	mux.Handle("DELETE /nodes/{id}", s.auth(http.HandlerFunc(s.deleteNode)))
 
 	mux.Handle("GET /nodes/{id}/inbounds", s.auth(http.HandlerFunc(s.listInbounds)))
 	mux.Handle("POST /nodes/{id}/inbounds", s.auth(http.HandlerFunc(s.createInbound)))
+	mux.Handle("GET /inbounds/{id}/edit", s.auth(http.HandlerFunc(s.editInbound)))
+	mux.Handle("POST /inbounds/{id}", s.auth(http.HandlerFunc(s.updateInbound)))
+	mux.Handle("POST /inbounds/{id}/toggle", s.auth(http.HandlerFunc(s.toggleInbound)))
 	mux.Handle("DELETE /inbounds/{id}", s.auth(http.HandlerFunc(s.deleteInbound)))
 
 	return mux

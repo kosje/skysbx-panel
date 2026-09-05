@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -61,39 +62,118 @@ func (s *Server) renderUsers(w http.ResponseWriter, r *http.Request, code int) {
 	s.render(w, "users", data)
 }
 
+// expiryFromForm reads the date field. A blank value means no expiry, which is
+// a nil pointer rather than the zero time — the zero time is in the past, and
+// would lock everyone out.
+func expiryFromForm(r *http.Request) (*time.Time, error) {
+	v := strings.TrimSpace(r.FormValue("expires_at"))
+	if v == "" {
+		return nil, nil
+	}
+	// The browser sends a date-only value; treat it as the end of that day in
+	// local time, which is what someone typing "expires on the 5th" means.
+	t, err := time.ParseInLocation("2006-01-02", v, time.Local)
+	if err != nil {
+		return nil, fmt.Errorf("expiry must be a date like 2026-01-31")
+	}
+	t = t.Add(24*time.Hour - time.Second)
+	return &t, nil
+}
+
+// limitFromForm reads the traffic field, in GiB. Blank and zero both mean no
+// limit, which is how the rest of the panel reads a zero.
+func limitFromForm(r *http.Request) (int64, error) {
+	v := strings.TrimSpace(r.FormValue("traffic_limit_gb"))
+	if v == "" {
+		return 0, nil
+	}
+	gb, err := strconv.ParseFloat(v, 64)
+	if err != nil || gb < 0 {
+		return 0, fmt.Errorf("traffic limit must be a number of GiB")
+	}
+	return int64(gb * 1024 * 1024 * 1024), nil
+}
+
 func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 	nu := service.NewUser{
 		Name: r.FormValue("name"),
 		Note: strings.TrimSpace(r.FormValue("note")),
 	}
 
-	if v := strings.TrimSpace(r.FormValue("expires_at")); v != "" {
-		// The browser sends a date-only value; treat it as the end of that day
-		// in local time, which is what someone typing "expires on the 5th"
-		// means.
-		t, err := time.ParseInLocation("2006-01-02", v, time.Local)
-		if err != nil {
-			s.errorBanner(w, http.StatusBadRequest, "expiry must be a date like 2026-01-31")
-			return
-		}
-		t = t.Add(24*time.Hour - time.Second)
-		nu.ExpiresAt = &t
+	expires, err := expiryFromForm(r)
+	if err != nil {
+		s.errorBanner(w, http.StatusBadRequest, err.Error())
+		return
 	}
+	nu.ExpiresAt = expires
 
-	if v := strings.TrimSpace(r.FormValue("traffic_limit_gb")); v != "" {
-		gb, err := strconv.ParseFloat(v, 64)
-		if err != nil || gb < 0 {
-			s.errorBanner(w, http.StatusBadRequest, "traffic limit must be a number of GiB")
-			return
-		}
-		nu.TrafficLimit = int64(gb * 1024 * 1024 * 1024)
+	limit, err := limitFromForm(r)
+	if err != nil {
+		s.errorBanner(w, http.StatusBadRequest, err.Error())
+		return
 	}
+	nu.TrafficLimit = limit
 
 	if _, err := s.svc.CreateUser(nu); err != nil {
 		s.fail(w, r, err)
 		return
 	}
 	s.renderUsers(w, r, http.StatusCreated)
+}
+
+// editUser swaps one row for a form over the same fields. The row is the target
+// so the rest of the table — and anyone else's row mid-edit — is left alone.
+func (s *Server) editUser(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		s.errorBanner(w, http.StatusBadRequest, "bad user id")
+		return
+	}
+	u, err := s.svc.User(id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	s.render(w, "user-edit-row", map[string]any{"User": u})
+}
+
+// updateUser applies the edit. Traffic used is not a field here and is not
+// written by the store either: a stale figure in a form that was open while
+// traffic was being reported must not roll someone's usage back.
+func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		s.errorBanner(w, http.StatusBadRequest, "bad user id")
+		return
+	}
+	u, err := s.svc.User(id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	expires, err := expiryFromForm(r)
+	if err != nil {
+		s.errorBanner(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	limit, err := limitFromForm(r)
+	if err != nil {
+		s.errorBanner(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	u.Name = strings.TrimSpace(r.FormValue("name"))
+	u.Note = strings.TrimSpace(r.FormValue("note"))
+	u.ExpiresAt = expires
+	u.TrafficLimit = limit
+
+	if err := s.svc.UpdateUser(u); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.renderUsers(w, r, http.StatusOK)
 }
 
 func (s *Server) toggleUser(w http.ResponseWriter, r *http.Request) {

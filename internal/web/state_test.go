@@ -58,6 +58,14 @@ func TestInboundPageShowsWhatTheNodeIsActuallyServing(t *testing.T) {
 		channel: &fakeChannel{},
 		want:    "节点离线",
 		notWant: "未生效",
+	}, {
+		// An inbound reaches the node asynchronously, so this is the state
+		// every newly created one is in for a second or two. Showing 未生效
+		// there trained the operator to ignore it.
+		name:    "node is connected but has not caught up yet",
+		channel: &fakeChannel{connected: true, known: true, tags: map[string]bool{}},
+		want:    "确认中",
+		notWant: "未生效",
 	}}
 
 	for _, tc := range cases {

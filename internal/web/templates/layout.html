@@ -29,7 +29,10 @@ th,td{text-align:left;padding:.5rem .6rem;border-bottom:1px solid var(--line);
 th{color:var(--dim);font-weight:500;font-size:.8rem;text-transform:uppercase;
    letter-spacing:.4px}
 tr:last-child td{border-bottom:none}
-td.num{text-align:right;font-variant-numeric:tabular-nums}
+/* The header has to follow the cells, or a right-aligned number column sits
+   under a left-aligned title. */
+td.num,th.num{text-align:right}
+td.num{font-variant-numeric:tabular-nums}
 form.row{display:flex;gap:.6rem;flex-wrap:wrap;align-items:flex-end}
 label{display:flex;flex-direction:column;gap:.25rem;font-size:.8rem;color:var(--dim)}
 input,select{background:#0c0e12;color:var(--fg);border:1px solid var(--line);

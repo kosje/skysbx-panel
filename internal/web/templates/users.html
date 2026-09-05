@@ -19,6 +19,34 @@
 {{template "foot" .}}
 {{end}}
 
+{{/* One row turned into a form over the same fields. Saving re-renders the
+     whole table, because a rename changes the subscription's own display and a
+     new expiry can change the 状态 pill. Cancel re-fetches it for the same
+     reason: whatever else changed while the form was open should show. */}}
+{{define "user-edit-row"}}
+<tr id="u-{{.User.ID}}">
+  <td colspan="7">
+    <form class="row" hx-post="/users/{{.User.ID}}"
+          hx-target="#users" hx-swap="outerHTML" style="align-items:flex-end">
+      <label>名称<input name="name" required value="{{.User.Name}}"
+             pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,31}"></label>
+      <label>到期<input name="expires_at" type="date"
+             value="{{dateval .User.ExpiresAt}}"></label>
+      <label>流量上限 GiB<input name="traffic_limit_gb" type="number" step="0.01" min="0"
+             placeholder="留空 = 不限" value="{{gibval .User.TrafficLimit}}"></label>
+      <label>备注<input name="note" value="{{.User.Note}}"></label>
+      <button>保存</button>
+      <button type="button" class="ghost" hx-get="/users"
+              hx-target="#users" hx-swap="outerHTML">取消</button>
+    </form>
+    <p class="dim" style="margin:.6rem 0 0;font-size:.8rem">
+      已用流量不在这里改 —— 要清零用行尾的「清零」。改名会让订阅里的显示跟着变，
+      但订阅链接不变。
+    </p>
+  </td>
+</tr>
+{{end}}
+
 {{define "user-table"}}
 <div class="card" id="users">
   {{if not .Users}}
@@ -61,6 +89,8 @@
           {{else}}不限{{end}}
         </td>
         <td style="text-align:right;white-space:nowrap">
+          <button class="ghost" hx-get="/users/{{.ID}}/edit"
+                  hx-target="closest tr" hx-swap="outerHTML">编辑</button>
           <button class="ghost" hx-post="/users/{{.ID}}/toggle"
                   hx-target="#users" hx-swap="outerHTML">{{if .Enabled}}停用{{else}}启用{{end}}</button>
           <button class="ghost" hx-post="/users/{{.ID}}/reset"

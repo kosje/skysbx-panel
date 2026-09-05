@@ -25,14 +25,19 @@ func ShareLinks(entries []Entry) []string {
 }
 
 // Base64 renders the links as the single base64 blob most clients expect from a
-// subscription URL, with any notice entries after the real servers.
-//
-// After, not before: a client importing a fresh subscription may make the first
-// entry the current one, and that should be somewhere that carries traffic. A
-// list this short is read whole anyway.
-func Base64(entries []Entry, notices []string) string {
-	lines := append(ShareLinks(entries), notices...)
-	return base64.StdEncoding.EncodeToString([]byte(strings.Join(lines, "\n")))
+// subscription URL.
+func Base64(entries []Entry) string {
+	joined := strings.Join(ShareLinks(entries), "\n")
+	return base64.StdEncoding.EncodeToString([]byte(joined))
+}
+
+// display is what a client should show for this entry. Falling back to the tag
+// keeps a hand-built Entry — a test, mostly — from rendering a nameless server.
+func (e Entry) display() string {
+	if e.Label != "" {
+		return e.Label
+	}
+	return e.Name
 }
 
 func shareLink(e Entry) string {
@@ -55,7 +60,7 @@ func shareLink(e Entry) string {
 		if e.Flow != "" {
 			q.Set("flow", e.Flow)
 		}
-		return "vless://" + e.UUID + "@" + host + "?" + q.Encode() + "#" + frag(e.Name)
+		return "vless://" + e.UUID + "@" + host + "?" + q.Encode() + "#" + frag(e.display())
 
 	case store.ProtoAnyTLS:
 		q := url.Values{}
@@ -67,7 +72,7 @@ func shareLink(e Entry) string {
 		// No multiplex or smux parameter: AnyTLS multiplexes on its own, and
 		// stacking another muxer on top breaks the connection.
 		return "anytls://" + url.QueryEscape(e.Password) + "@" + host +
-			"?" + q.Encode() + "#" + frag(e.Name)
+			"?" + q.Encode() + "#" + frag(e.display())
 
 	case store.ProtoShadowsocks:
 		// SIP002: the userinfo is websafe-base64 of "method:password". Padding
@@ -75,7 +80,7 @@ func shareLink(e Entry) string {
 		// userinfo through a URL parser before decoding it.
 		userinfo := base64.RawURLEncoding.EncodeToString(
 			[]byte(e.Method + ":" + e.Password))
-		return "ss://" + userinfo + "@" + host + "#" + frag(e.Name)
+		return "ss://" + userinfo + "@" + host + "#" + frag(e.display())
 	}
 	return ""
 }

@@ -218,57 +218,88 @@ func TestBase64Decodes(t *testing.T) {
 	u, nodes, inbounds := fixture(t)
 	entries, _ := Build(u, nodes, inbounds, nil)
 
-	raw, err := base64.StdEncoding.DecodeString(Base64(entries, nil))
+	raw, err := base64.StdEncoding.DecodeString(Base64(entries))
 	if err != nil {
 		t.Fatalf("not valid base64: %v", err)
 	}
+	// Three servers and nothing else. An earlier version appended unreachable
+	// entries carrying the quota in their names; they read as broken servers.
 	if n := len(strings.Split(strings.TrimSpace(string(raw)), "\n")); n != 3 {
 		t.Fatalf("decoded to %d lines, want 3", n)
 	}
+	if strings.Contains(string(raw), "192.0.2.") {
+		t.Error("the list still contains a placeholder entry")
+	}
 }
 
-// The notice entries carry usage and expiry in their names, for the clients
-// that put a server list in front of the user and the header nowhere.
-func TestNoticesAreAppendedNotPrepended(t *testing.T) {
+// What a client's server list shows has to identify the server and the account
+// in one line, because that column is the only thing some clients ever show.
+func TestShareLinkNameCarriesTheAccount(t *testing.T) {
 	u, nodes, inbounds := fixture(t)
-	entries, _ := Build(u, nodes, inbounds, nil)
-
 	// Stored the way the panel stores an expiry: the last second of a day in
-	// the operator's own timezone. Formatting that in UTC would show the day
-	// after for anyone east of Greenwich, and the panel's own list would then
-	// disagree with the client.
+	// the operator's own timezone. Formatting it in UTC would show the day
+	// after, and the panel's own list would disagree with the client.
 	expires := time.Date(2026, 12, 31, 23, 59, 59, 0, time.Local)
-	now := time.Date(2026, 12, 1, 23, 59, 59, 0, time.Local)
-	notices := InfoLinks(3<<30, 10<<30, &expires, now)
-	if len(notices) != 2 {
-		t.Fatalf("got %d notices, want one for traffic and one for expiry", len(notices))
+	u.ExpiresAt = &expires
+	u.TrafficUsed = 3 << 30
+	u.TrafficLimit = 10 << 30
+
+	entries, _ := Build(u, nodes, inbounds, nil)
+	if len(entries) == 0 {
+		t.Fatal("no entries")
+	}
+	for _, e := range entries {
+		for _, want := range []string{e.Name, u.Name, "3.00 GiB", "10.00 GiB", "2026-12-31"} {
+			if !strings.Contains(e.Label, want) {
+				t.Errorf("label %q does not mention %q", e.Label, want)
+			}
+		}
 	}
 
-	raw, err := base64.StdEncoding.DecodeString(Base64(entries, notices))
+	// A hand-typed tag says nothing about which node it is on. In a list
+	// spanning several nodes that is unanswerable, so the node name goes in
+	// front of the tags that do not already carry it.
+	if got := label("tokyo", "01", u, time.Now()); !strings.HasPrefix(got, "tokyo 01") {
+		t.Errorf("label for a bare tag is %q, want it prefixed with the node", got)
+	}
+	// And not in front of the ones that do — "tokyo ss-tokyo" reads as a bug.
+	if got := label("tokyo", "ss-tokyo", u, time.Now()); !strings.HasPrefix(got, "ss-tokyo") {
+		t.Errorf("label for a derived tag is %q, want no redundant node name", got)
+	}
+
+	raw, err := base64.StdEncoding.DecodeString(Base64(entries))
 	if err != nil {
 		t.Fatalf("not valid base64: %v", err)
 	}
-	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
-	if len(lines) != 5 {
-		t.Fatalf("got %d lines, want 3 servers + 2 notices", len(lines))
-	}
-	// A client that makes the first entry current must land on a real server.
-	if strings.Contains(lines[0], infoAddress) {
-		t.Error("a notice is first in the list")
-	}
-	for _, want := range []string{"3.00 GiB", "10.00 GiB", "2026-12-31", "剩 30 天"} {
-		if !strings.Contains(strings.Join(notices, "\n"), url.QueryEscape(want)) &&
-			!strings.Contains(strings.Join(notices, "\n"), frag(want)) {
-			t.Errorf("notices do not mention %q", want)
-		}
+	if !strings.Contains(string(raw), frag(entries[0].Label)) {
+		t.Error("the link fragment is not the label")
 	}
 }
 
-// No limit and no expiry means nothing worth saying, and two lines reading
-// "unlimited" would just be noise in the server list.
-func TestNoNoticesForAnUnlimitedUser(t *testing.T) {
-	if n := InfoLinks(0, 0, nil, time.Now()); len(n) != 0 {
-		t.Errorf("got %d notices for an unlimited user, want none", len(n))
+// The other two formats name proxies with the stable tag. Their names are group
+// members and rule targets, so a usage figure baked into one would make the
+// client see a different set of servers on every fetch.
+func TestSingBoxAndClashKeepStableNames(t *testing.T) {
+	u, nodes, inbounds := fixture(t)
+	u.TrafficUsed = 3 << 30
+	u.TrafficLimit = 10 << 30
+	entries, _ := Build(u, nodes, inbounds, nil)
+
+	sb, err := SingBox(entries)
+	if err != nil {
+		t.Fatalf("singbox: %v", err)
+	}
+	cl, err := Clash(entries)
+	if err != nil {
+		t.Fatalf("clash: %v", err)
+	}
+	for _, out := range [][]byte{sb, cl} {
+		if strings.Contains(string(out), "3.00 GiB") {
+			t.Error("a proxy is named with a usage figure that changes every fetch")
+		}
+		if !strings.Contains(string(out), entries[0].Name) {
+			t.Errorf("proxy %q is missing", entries[0].Name)
+		}
 	}
 }
 

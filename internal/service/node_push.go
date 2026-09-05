@@ -22,9 +22,19 @@ const (
 // message so that adding or removing one is a hot swap rather than a listener
 // rebuild — a rebuild drops every live connection on that inbound.
 func (s *Service) NodeConfig(nodeID int64) (*singbox.Config, error) {
+	node, err := s.st.Node(nodeID)
+	if err != nil {
+		return nil, err
+	}
 	inbounds, err := s.st.NodeInbounds(nodeID)
 	if err != nil {
 		return nil, err
+	}
+	// A disabled node serves nothing. Leaving its listeners up and merely
+	// hiding it from subscriptions would mean anyone holding an old link keeps
+	// getting through — which is not what turning a node off means.
+	if !node.Enabled {
+		inbounds = nil
 	}
 
 	cfg := &singbox.Config{

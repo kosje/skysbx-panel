@@ -46,12 +46,9 @@ func (s *Server) getSubscription(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Profile-Title", sub.ProfileTitle(sb.User.Name))
 	w.Header().Set("Content-Type", sub.ContentType(format))
 
-	notices := sub.InfoLinks(sb.User.TrafficUsed, sb.User.TrafficLimit,
-		sb.User.ExpiresAt, nowFunc())
-
 	switch format {
 	case sub.FormatHTML:
-		s.subscriptionPage(w, r, sb, entries, notices)
+		s.subscriptionPage(w, r, sb, entries)
 
 	case sub.FormatSingBox:
 		data, err := sub.SingBox(entries)
@@ -70,12 +67,12 @@ func (s *Server) getSubscription(w http.ResponseWriter, r *http.Request) {
 		w.Write(data)
 
 	default:
-		w.Write([]byte(sub.Base64(entries, notices)))
+		w.Write([]byte(sub.Base64(entries)))
 	}
 }
 
 func (s *Server) subscriptionPage(w http.ResponseWriter, r *http.Request,
-	sb *service.Subscription, entries []sub.Entry, notices []string,
+	sb *service.Subscription, entries []sub.Entry,
 ) {
 	links := sub.ShareLinks(entries)
 	rows := make([]map[string]any, 0, len(entries))
@@ -99,7 +96,7 @@ func (s *Server) subscriptionPage(w http.ResponseWriter, r *http.Request,
 		"Used":     sb.User.TrafficUsed,
 		"Limit":    sb.User.TrafficLimit,
 		"SubURL":   subURL(r),
-		"Base64":   sub.Base64(entries, notices),
+		"Base64":   sub.Base64(entries),
 		"Inactive": len(entries) == 0,
 	})
 }

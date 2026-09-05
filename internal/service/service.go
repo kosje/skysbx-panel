@@ -210,11 +210,21 @@ func (s *Service) UpdateNode(n *store.Node) error {
 	if strings.TrimSpace(n.Address) == "" {
 		return invalid("node address is required")
 	}
+	// Whether this edit turns the node off decides whether the node has to be
+	// told. Renaming one must not: pushing a config rebuilds every listener and
+	// drops every live connection, which is a strange price for fixing a typo.
+	prev, err := s.st.Node(n.ID)
+	if err != nil {
+		return err
+	}
 	if err := s.st.UpdateNode(n); err != nil {
 		return err
 	}
+	if prev.Enabled != n.Enabled {
+		s.notify.ConfigChanged(n.ID)
+	}
 	// The address is what subscriptions point at, so an edit changes generated
-	// configs; the node's own running config is unaffected.
+	// configs; the node's own running config is otherwise unaffected.
 	return nil
 }
 

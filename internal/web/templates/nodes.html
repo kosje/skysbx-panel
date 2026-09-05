@@ -20,6 +20,31 @@
 {{template "foot" .}}
 {{end}}
 
+{{/* The address is the one field worth editing often: it is what clients dial,
+     and getting it wrong is invisible in the panel because the node connects
+     outward regardless. */}}
+{{define "node-edit-row"}}
+<tr>
+  <td colspan="6">
+    <form class="row" hx-post="/nodes/{{.Node.ID}}"
+          hx-target="#nodes" hx-swap="outerHTML" style="align-items:flex-end">
+      <label>名称<input name="name" required value="{{.Node.Name}}"
+             pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,31}"></label>
+      <label>客户端连接地址<input name="address" required value="{{.Node.Address}}"></label>
+      <label>国家<input name="country" maxlength="2" value="{{.Node.Country}}"
+             style="min-width:5rem"></label>
+      <button>保存</button>
+      <button type="button" class="ghost" hx-get="/nodes"
+              hx-target="#nodes" hx-swap="outerHTML">取消</button>
+    </form>
+    <p class="dim" style="margin:.6rem 0 0;font-size:.8rem">
+      改地址或名称只影响订阅里生成的内容，节点不会重启、连接不会断。
+      接入 token 不在这里改 —— 那是「换 token」。
+    </p>
+  </td>
+</tr>
+{{end}}
+
 {{define "node-table"}}
 {{/* Poll for connection state. A node can drop at any moment with nothing to
      tell the browser about it, and a status that only updates on reload is
@@ -71,6 +96,12 @@
           </td>
           <td><code class="mono">{{if .Version}}{{.Version}}{{else}}—{{end}}</code></td>
           <td style="text-align:right;white-space:nowrap">
+            <button class="ghost" hx-get="/nodes/{{.ID}}/edit"
+                    hx-target="closest tr" hx-swap="outerHTML">编辑</button>
+            <button class="ghost" hx-post="/nodes/{{.ID}}/toggle"
+                    hx-target="#nodes" hx-swap="outerHTML"
+                    {{if .Enabled}}hx-confirm="停用 {{.Name}}？该节点会停掉所有入站，连着它的客户端立即断开。"{{end}}
+                    >{{if .Enabled}}停用{{else}}启用{{end}}</button>
             <button class="ghost" hx-post="/nodes/{{.ID}}/rotate"
                     hx-target="#nodes" hx-swap="outerHTML"
                     hx-confirm="重新生成 {{.Name}} 的 token？旧 token 立即失效，该节点会掉线直到你换上新的。">换 token</button>

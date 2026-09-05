@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -67,6 +68,65 @@ func (s *Server) createNode(w http.ResponseWriter, r *http.Request) {
 	s.renderNodes(w, r, http.StatusCreated, token)
 }
 
+func (s *Server) editNode(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		s.errorBanner(w, http.StatusBadRequest, "bad node id")
+		return
+	}
+	n, err := s.svc.Node(id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	s.render(w, "node-edit-row", map[string]any{"Node": n})
+}
+
+// updateNode applies an edit. The join token is not a field: it is shown once
+// when it is issued, and replacing it is 换 token, which is a different and
+// more disruptive act than fixing a typo in an address.
+func (s *Server) updateNode(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		s.errorBanner(w, http.StatusBadRequest, "bad node id")
+		return
+	}
+	n, err := s.svc.Node(id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	n.Name = strings.TrimSpace(r.FormValue("name"))
+	n.Address = strings.TrimSpace(r.FormValue("address"))
+	n.Country = strings.TrimSpace(r.FormValue("country"))
+
+	if err := s.svc.UpdateNode(n); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.renderNodes(w, r, http.StatusOK, "")
+}
+
+func (s *Server) toggleNode(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		s.errorBanner(w, http.StatusBadRequest, "bad node id")
+		return
+	}
+	n, err := s.svc.Node(id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	n.Enabled = !n.Enabled
+	if err := s.svc.UpdateNode(n); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.renderNodes(w, r, http.StatusOK, "")
+}
+
 func (s *Server) rotateNode(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -126,6 +186,8 @@ func (s *Server) renderInbounds(w http.ResponseWriter, r *http.Request, nodeID i
 		}
 	}
 
+	applyErr := s.nodes.ApplyError(nodeID)
+
 	data := map[string]any{"Node": node, "Inbounds": inbounds,
 		"Protocols":        []string{store.ProtoVLESS, store.ProtoAnyTLS, store.ProtoShadowsocks},
 		"DefaultHandshake": service.DefaultHandshake,
@@ -133,7 +195,8 @@ func (s *Server) renderInbounds(w http.ResponseWriter, r *http.Request, nodeID i
 		"DefaultKeyPath":   service.DefaultKeyPath,
 		"StateKnown":       known,
 		"Live":             live,
-		"NodeError":        s.nodes.ApplyError(nodeID)}
+		"NodeError":        applyErr,
+		"Settle":           s.settle(r, nodeID, inbounds, tags, known, applyErr)}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(code)
@@ -143,6 +206,46 @@ func (s *Server) renderInbounds(w http.ResponseWriter, r *http.Request, nodeID i
 	}
 	data["Page"] = "inbounds"
 	s.render(w, "inbounds", data)
+}
+
+// settleLimit bounds the poll below. Applying a configuration is two hops and a
+// sing-box restart, normally under two seconds; past this the answer is that
+// something is wrong, and the page should say what it knows rather than spin.
+const settleLimit = 8
+
+// settle returns the number of the next poll, or 0 when the page should stop
+// polling.
+//
+// An inbound is written to the database and pushed to the node asynchronously,
+// so the response to "create" is rendered before the node can possibly have
+// applied it — every new inbound appeared as 未生效 until the operator reloaded
+// by hand. The page asks again until the node's report catches up with what the
+// panel holds.
+//
+// It stops as soon as there is a real answer: everything live, or the node
+// having said why not. A disconnected node is also an answer, and one that no
+// amount of polling improves.
+func (s *Server) settle(r *http.Request, nodeID int64, inbounds []*store.Inbound,
+	tags map[string]bool, known bool, applyErr string,
+) int {
+	if applyErr != "" || !s.nodes.Connected(nodeID) {
+		return 0
+	}
+	pending := !known
+	for _, in := range inbounds {
+		if in.Enabled && !tags[in.Tag] {
+			pending = true
+			break
+		}
+	}
+	if !pending {
+		return 0
+	}
+	next, _ := strconv.Atoi(r.URL.Query().Get("settle"))
+	if next+1 > settleLimit {
+		return 0
+	}
+	return next + 1
 }
 
 func (s *Server) createInbound(w http.ResponseWriter, r *http.Request) {
@@ -180,6 +283,87 @@ func (s *Server) createInbound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.renderInbounds(w, r, nodeID, http.StatusCreated)
+}
+
+func (s *Server) editInbound(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		s.errorBanner(w, http.StatusBadRequest, "bad inbound id")
+		return
+	}
+	in, err := s.svc.Store().Inbound(id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	client, err := service.ParseClient(in)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	sb, err := service.ParseConfig(in)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	handshake, tls := service.InboundEditFields(in.Protocol)
+	data := map[string]any{"In": in, "Handshake": handshake, "TLS": tls,
+		"SNI": client.SNI, "Cols": 5}
+	if sb.TLS != nil {
+		data["CertPath"] = sb.TLS.CertificatePath
+		data["KeyPath"] = sb.TLS.KeyPath
+	}
+	if sb.TLS != nil && sb.TLS.Reality != nil {
+		data["HandshakeValue"] = fmt.Sprintf("%s:%d",
+			sb.TLS.Reality.Handshake.Server, sb.TLS.Reality.Handshake.ServerPort)
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	s.render(w, "inbound-edit-row", data)
+}
+
+func (s *Server) updateInbound(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		s.errorBanner(w, http.StatusBadRequest, "bad inbound id")
+		return
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(r.FormValue("port")))
+	if err != nil {
+		s.errorBanner(w, http.StatusBadRequest, "port must be a number")
+		return
+	}
+	in, err := s.svc.EditInbound(id, service.InboundEdit{
+		Port:       port,
+		Handshake:  r.FormValue("handshake"),
+		CertPath:   strings.TrimSpace(r.FormValue("cert_path")),
+		KeyPath:    strings.TrimSpace(r.FormValue("key_path")),
+		ServerName: strings.TrimSpace(r.FormValue("server_name")),
+	})
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.renderInbounds(w, r, in.NodeID, http.StatusOK)
+}
+
+func (s *Server) toggleInbound(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		s.errorBanner(w, http.StatusBadRequest, "bad inbound id")
+		return
+	}
+	in, err := s.svc.Store().Inbound(id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if err := s.svc.SetInboundEnabled(id, !in.Enabled); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.renderInbounds(w, r, in.NodeID, http.StatusOK)
 }
 
 func (s *Server) deleteInbound(w http.ResponseWriter, r *http.Request) {
