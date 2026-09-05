@@ -48,7 +48,12 @@ git clone -q --branch "$REF" --depth 1 "$REPO" "$SRC/skysbx-panel" \
 # opening /dev/tty fails, and under dash a failed redirection in the current
 # shell is fatal — which used to kill this script silently, with no output at
 # all, in the one situation it most needed to explain itself.
+#
+# bash, not sh: this launcher is POSIX because it is piped into whatever /bin/sh
+# is, but the installer it hands over to is bash — on Debian /bin/sh is dash,
+# which fails on the first line with "Illegal option -o pipefail".
+command -v bash >/dev/null 2>&1 || die "bash is required"
 if ( exec 3>/dev/tty ) 2>/dev/null; then
-    exec sh "$SRC/skysbx-panel/deploy/install-panel.sh" "$@" </dev/tty
+    exec bash "$SRC/skysbx-panel/deploy/install-panel.sh" "$@" </dev/tty
 fi
-exec sh "$SRC/skysbx-panel/deploy/install-panel.sh" "$@"
+exec bash "$SRC/skysbx-panel/deploy/install-panel.sh" "$@"
