@@ -32,7 +32,8 @@ Actions (default: install)
                     domain back from the systemd unit, so it needs no
                     arguments. The database is never touched.
   --uninstall       Stop and remove the service and the binary. Keeps the
-                    database and the certificates.
+                    database, the certificates and the domain, so putting it
+                    back is a no-argument --upgrade.
   --purge           --uninstall, and delete the database and certificates too.
                     That is every user, node and subscription — there is no
                     undo, and no copy anywhere else.
@@ -98,6 +99,7 @@ if [ "$ACTION" = uninstall ] || [ "$ACTION" = purge ]; then
         # Every user, node and subscription lives in this one file. Nothing else
         # in this script destroys anything that cannot be rebuilt.
         rm -f "$ROOT/skysbx.db" "$ROOT/skysbx.db-wal" "$ROOT/skysbx.db-shm"
+        rm -f "$ROOT/panel.env"
         rm -rf "$ROOT/certs"
         ok "database and certificates deleted"
         if command -v docker >/dev/null 2>&1; then
@@ -133,13 +135,19 @@ if [ "$ACTION" = uninstall ] || [ "$ACTION" = purge ]; then
 fi
 
 if [ "$ACTION" = upgrade ]; then
-    [ -f /etc/systemd/system/skysbx-panel.service ] \
-        || die "nothing installed (run without --upgrade first)"
-    DOMAIN=${DOMAIN:-$(sed -n 's/.*--domain \([^ ]*\).*/\1/p' \
-        /etc/systemd/system/skysbx-panel.service | head -1)}
-    EMAIL=${EMAIL:-$(sed -n 's/.*--acme-email \([^ ]*\).*/\1/p' \
-        /etc/systemd/system/skysbx-panel.service | head -1)}
-    [ -n "$DOMAIN" ] || die "cannot read the domain from the systemd unit; pass --domain"
+    # panel.env first: it survives an --uninstall, so "reinstall" and "upgrade"
+    # are the same command. The unit file is the fallback for panels installed
+    # before panel.env existed.
+    if [ -f "$ROOT/panel.env" ]; then
+        DOMAIN=${DOMAIN:-$(sed -n 's/^SKYSBX_DOMAIN=//p' "$ROOT/panel.env")}
+        EMAIL=${EMAIL:-$(sed -n 's/^SKYSBX_ACME_EMAIL=//p' "$ROOT/panel.env")}
+    elif [ -f /etc/systemd/system/skysbx-panel.service ]; then
+        DOMAIN=${DOMAIN:-$(sed -n 's/.*--domain \([^ ]*\).*/\1/p' \
+            /etc/systemd/system/skysbx-panel.service | head -1)}
+        EMAIL=${EMAIL:-$(sed -n 's/.*--acme-email \([^ ]*\).*/\1/p' \
+            /etc/systemd/system/skysbx-panel.service | head -1)}
+    fi
+    [ -n "$DOMAIN" ] || die "cannot tell which domain this panel serves; pass --domain"
     say "upgrading — domain $DOMAIN"
 fi
 
@@ -247,6 +255,15 @@ ok "panel binary installed"
 # ─────────────────────────────── service ──────────────────────────────────
 
 say "service"
+# Kept beside the data rather than only in the unit file, so that --upgrade
+# still knows the domain after an --uninstall has removed the unit. Without it,
+# reinstalling would mean remembering and retyping what the panel already knew.
+cat > "$ROOT/panel.env" <<EOF
+SKYSBX_DOMAIN=${DOMAIN}
+SKYSBX_ACME_EMAIL=${EMAIL}
+EOF
+chmod 600 "$ROOT/panel.env"
+
 cat > /etc/systemd/system/skysbx-panel.service <<EOF
 [Unit]
 Description=skysbx panel
