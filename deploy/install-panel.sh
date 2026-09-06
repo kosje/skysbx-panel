@@ -1,404 +1,118 @@
-#!/usr/bin/env bash
-# Install the skysbx panel on a Debian/Ubuntu host.
+#!/bin/sh
+# Install skysbx-panel and skysbx-node on this host.
 #
-#   sudo ./install-panel.sh --domain panel.example.com --email you@example.com
+#   wget -qO- https://raw.githubusercontent.com/kosje/skysbx-panel/main/install-panel-and-node.sh | sh
 #
-# Re-running upgrades the binary in place; the database is never touched.
-set -euo pipefail
+# The node must have a join token.  Create a node in the panel after the panel
+# installer finishes, then paste that one-time token when this script asks.
+set -eu
 
-ROOT=${SKYSBX_ROOT:-/opt/skysbx}
+PANEL_REPO=${SKYSBX_REPO:-https://github.com/kosje/skysbx-panel.git}
+PANEL_REF=${SKYSBX_REF:-main}
+NODE_REPO=${SKYSBX_NODE_REPO:-https://github.com/kosje/skysbx-node.git}
+NODE_REF=${SKYSBX_NODE_REF:-main}
 DOMAIN=""
 EMAIL=""
-SRC_DIR=""
-GH_TOKEN=${GITHUB_TOKEN:-}
-GH_OWNER=${SKYSBX_GH_OWNER:-kosje}
-REF=${SKYSBX_REF:-main}
+PANEL_URL=""
+TOKEN=""
+NODE_DOMAIN=""
+CF_TOKEN=""
 
-RED=$'\e[31m'; GRN=$'\e[32m'; YLW=$'\e[33m'; BLD=$'\e[1m'; RST=$'\e[0m'
-say()  { printf '%s==>%s %s\n' "$BLD" "$RST" "$*"; }
-ok()   { printf '%s  ok%s %s\n' "$GRN" "$RST" "$*"; }
-warn() { printf '%s warn%s %s\n' "$YLW" "$RST" "$*"; }
-die()  { printf '%s fail%s %s\n' "$RED" "$RST" "$*" >&2; exit 1; }
-
-ACTION=install
+RED=$(printf '\033[31m'); GRN=$(printf '\033[32m'); BLD=$(printf '\033[1m'); RST=$(printf '\033[0m')
+say() { printf '%s==>%s %s\n' "$BLD" "$RST" "$*"; }
+die() { printf '%s fail%s %s\n' "$RED" "$RST" "$*" >&2; exit 1; }
 
 usage() {
-    cat <<EOF
-Usage: sudo ./install-panel.sh [--domain <fqdn>] [options]
+    cat <<'EOF'
+Usage: sudo sh install-panel-and-node.sh --domain <panel-fqdn> [options]
 
-Actions (default: install)
-  --version         What is installed.
-  --upgrade         Rebuild from the current sources and restart. Reads the
-                    domain back from the systemd unit, so it needs no
-                    arguments. The database is never touched.
-  --uninstall       Stop and remove the service and the binary. Keeps the
-                    database, the certificates and the domain, so putting it
-                    back is a no-argument --upgrade.
-  --purge           --uninstall, and delete the database and certificates too.
-                    That is every user, node and subscription — there is no
-                    undo, and no copy anywhere else.
+Installs the panel first, then installs a node connected to that same panel.
+After the panel is online, create a node in its web UI and paste the one-time
+join token when prompted (or provide it with --token).
 
-Install options
-  --domain <fqdn>   Panel domain. Must already resolve to this server.
-  --email <addr>    Contact address for Let's Encrypt (recommended).
-  --src <dir>       Build from a checkout already on disk instead of cloning.
-  -h, --help        This text.
+  --domain <fqdn>       Panel domain (required; must resolve to this host).
+  --email <addr>        Let's Encrypt contact email for the panel.
+  --panel <url>         Panel URL for the node (default: https://<panel-fqdn>).
+  --token <token>       Node join token created in the panel UI.
+  --node-domain <fqdn>  Node domain for AnyTLS; optional.
+  --cf-token <token>    Cloudflare DNS-01 token for the node certificate.
+  -h, --help            Show this help.
 
-Ports 80 and 443 must be free: the panel terminates its own TLS and answers the
-ACME challenge itself, so there is no reverse proxy to install or configure.
+Environment overrides: SKYSBX_REPO, SKYSBX_REF (panel), SKYSBX_NODE_REPO,
+SKYSBX_NODE_REF (node), GITHUB_TOKEN.
 EOF
 }
 
-while [ $# -gt 0 ]; do
+while [ "$#" -gt 0 ]; do
     case "$1" in
-        --version)   ACTION=version; shift ;;
-        --upgrade)   ACTION=upgrade; shift ;;
-        --uninstall) ACTION=uninstall; shift ;;
-        --purge)     ACTION=purge; shift ;;
-        --domain)    DOMAIN=$2; shift 2 ;;
-        --email)     EMAIL=$2; shift 2 ;;
-        --src)       SRC_DIR=$2; shift 2 ;;
-        -h|--help)   usage; exit 0 ;;
+        --domain) DOMAIN=${2-}; shift 2 ;;
+        --email) EMAIL=${2-}; shift 2 ;;
+        --panel) PANEL_URL=${2-}; shift 2 ;;
+        --token) TOKEN=${2-}; shift 2 ;;
+        --node-domain) NODE_DOMAIN=${2-}; shift 2 ;;
+        --cf-token) CF_TOKEN=${2-}; shift 2 ;;
+        -h|--help) usage; exit 0 ;;
         *) die "unknown option: $1 (try --help)" ;;
     esac
 done
 
-# ───────────────────────── version / uninstall / purge ─────────────────────
+[ "$(id -u)" = 0 ] || die 'run as root (for example: sudo sh -c "$(wget -qO- ...) ")'
+[ -n "$DOMAIN" ] || { usage >&2; die '--domain is required'; }
+PANEL_URL=${PANEL_URL:-"https://$DOMAIN"}
 
-if [ "$ACTION" = version ]; then
-    if [ -x "$ROOT/skysbx-panel" ]; then
-        "$ROOT/skysbx-panel" -version
-        printf 'installed  %s\n' "$(stat -c %y "$ROOT/skysbx-panel" 2>/dev/null | cut -d. -f1)"
-        systemctl is-active --quiet skysbx-panel \
-            && printf 'service    running\n' || printf 'service    not running\n'
-        [ -f "$ROOT/skysbx.db" ] && printf 'database   %s (%s)\n' "$ROOT/skysbx.db" \
-            "$(du -h "$ROOT/skysbx.db" 2>/dev/null | cut -f1)"
+# Like the single-component launchers, recover the terminal after wget | sh so
+# the panel administrator and node-token prompts remain interactive.
+if (exec 3>/dev/tty) 2>/dev/null; then
+    exec </dev/tty
+fi
+
+if ! command -v git >/dev/null 2>&1; then
+    say 'installing git'
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get update -qq && apt-get install -y -qq git
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y -q git
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y -q git
     else
-        printf 'skysbx-panel is not installed at %s\n' "$ROOT"
+        die 'install git first'
     fi
-    exit 0
 fi
+command -v bash >/dev/null 2>&1 || die 'bash is required'
 
-if [ "$ACTION" = uninstall ] || [ "$ACTION" = purge ]; then
-    [ "$(id -u)" = 0 ] || die "run as root"
+SRC=$(mktemp -d)
+trap 'rm -rf "$SRC"' EXIT
+say "fetching $PANEL_REPO@$PANEL_REF"
+git clone -q --branch "$PANEL_REF" --depth 1 "$PANEL_REPO" "$SRC/skysbx-panel" \
+    || die "cannot clone $PANEL_REPO"
 
-    say "removing the service"
-    systemctl disable --now skysbx-panel >/dev/null 2>&1 || true
-    rm -f /etc/systemd/system/skysbx-panel.service
-    systemctl daemon-reload 2>/dev/null || true
-    systemctl reset-failed 2>/dev/null || true
-    ok "skysbx-panel stopped and removed"
+# Run the real panel installer from the checked-out source, rather than piping
+# it, so its administrator prompt keeps a usable stdin.
+set -- --domain "$DOMAIN"
+[ -n "$EMAIL" ] && set -- "$@" --email "$EMAIL"
+bash "$SRC/skysbx-panel/deploy/install-panel.sh" "$@"
 
-    rm -f "$ROOT/skysbx-panel"
-    # The build tree is scratch space, not data: a fresh clone on every run.
-    rm -rf "$ROOT/build/skysbx-panel"
-    ok "binary and build cache removed"
-
-    if [ "$ACTION" = purge ]; then
-        say "purging"
-        # Every user, node and subscription lives in this one file. Nothing else
-        # in this script destroys anything that cannot be rebuilt.
-        rm -f "$ROOT/skysbx.db" "$ROOT/skysbx.db-wal" "$ROOT/skysbx.db-shm"
-        rm -f "$ROOT/panel.env"
-        rm -rf "$ROOT/certs"
-        ok "database and certificates deleted"
-        if command -v docker >/dev/null 2>&1; then
-            docker image rm golang:1.27 >/dev/null 2>&1 \
-                && ok "build image removed" || true
-        fi
-        if [ -f "$ROOT/.docker-installed-by-skysbx" ] && command -v docker >/dev/null 2>&1; then
-            say "removing docker (this script installed it)"
-            systemctl disable --now docker docker.socket containerd >/dev/null 2>&1 || true
-            apt-get purge -y -qq docker-ce docker-ce-cli containerd.io \
-                docker-buildx-plugin docker-compose-plugin >/dev/null 2>&1 || true
-            apt-get autoremove -y -qq >/dev/null 2>&1 || true
-            rm -rf /var/lib/docker /var/lib/containerd /etc/docker
-            rm -f "$ROOT/.docker-installed-by-skysbx"
-            ok "docker removed"
-        fi
-    fi
-
-    # Shared with the node when both are on one host, so it goes only if this
-    # was the last thing in it.
-    rmdir "$ROOT/build" 2>/dev/null || true
-    if rmdir "$ROOT" 2>/dev/null; then
-        ok "$ROOT removed"
-    else
-        warn "$ROOT kept — it still holds files (the node's, or your own):"
-        (ls -A "$ROOT" 2>/dev/null || true) | sed 's/^/       /'
-    fi
-
-    printf '\n%sskysbx panel removed.%s\n' "$GRN" "$RST"
-    [ "$ACTION" = uninstall ] && printf \
-        'The database and certificates were kept at %s; --purge removes those too.\n' "$ROOT"
-    exit 0
-fi
-
-if [ "$ACTION" = upgrade ]; then
-    # panel.env first: it survives an --uninstall, so "reinstall" and "upgrade"
-    # are the same command. The unit file is the fallback for panels installed
-    # before panel.env existed.
-    if [ -f "$ROOT/panel.env" ]; then
-        DOMAIN=${DOMAIN:-$(sed -n 's/^SKYSBX_DOMAIN=//p' "$ROOT/panel.env")}
-        EMAIL=${EMAIL:-$(sed -n 's/^SKYSBX_ACME_EMAIL=//p' "$ROOT/panel.env")}
-    elif [ -f /etc/systemd/system/skysbx-panel.service ]; then
-        DOMAIN=${DOMAIN:-$(sed -n 's/.*--domain \([^ ]*\).*/\1/p' \
-            /etc/systemd/system/skysbx-panel.service | head -1)}
-        EMAIL=${EMAIL:-$(sed -n 's/.*--acme-email \([^ ]*\).*/\1/p' \
-            /etc/systemd/system/skysbx-panel.service | head -1)}
-    fi
-    [ -n "$DOMAIN" ] || die "cannot tell which domain this panel serves; pass --domain"
-    say "upgrading — domain $DOMAIN"
-fi
-
-# ─────────────────────────────── preflight ────────────────────────────────
-
-say "preflight"
-[ "$(id -u)" = 0 ] || die "run as root"
-
-if [ -z "$DOMAIN" ]; then
+if [ -z "$TOKEN" ]; then
     if [ -t 0 ]; then
-        printf '  Panel domain (must already resolve here): '
-        read -r DOMAIN
+        printf '\nCreate a node at %s, then paste its one-time join token: ' "$PANEL_URL"
+        read -r TOKEN
     fi
-    [ -n "$DOMAIN" ] || { usage; die "--domain is required"; }
-fi
-if [ -z "$EMAIL" ] && [ -t 0 ]; then
-    printf "  Let's Encrypt contact email [skip]: "
-    read -r EMAIL
+    [ -n "$TOKEN" ] || die 'a node join token is required; rerun with --token <token>'
 fi
 
-# The administrator is set before the panel ever listens.
-#
-# Until one exists, /setup belongs to whoever reaches it first — and between
-# the moment this script starts the service and the moment a human opens a
-# browser, that is a race against everyone who can reach the domain. Asking
-# here turns a window into no window.
-#
-# Only on a first install: an upgrade already has an administrator, and
-# prompting for one would either be ignored or would silently replace it.
-NEED_ADMIN=no
-if [ "$ACTION" = install ] && [ ! -f "$ROOT/skysbx.db" ]; then
-    NEED_ADMIN=yes
-    ADMIN_USER=${SKYSBX_ADMIN_USER:-}
-    ADMIN_PASS=${SKYSBX_ADMIN_PASSWORD:-}
+say "fetching $NODE_REPO@$NODE_REF installer"
+git clone -q --branch "$NODE_REF" --depth 1 "$NODE_REPO" "$SRC/skysbx-node" \
+    || die "cannot clone $NODE_REPO"
+NODE_INSTALL=$SRC/skysbx-node/install.sh
+[ -f "$NODE_INSTALL" ] || die "node installer is missing from $NODE_REPO"
 
-    if [ -z "$ADMIN_PASS" ]; then
-        # No terminal means no way to ask. Refusing beats carrying on: the
-        # alternative is a panel whose administrator is whoever opens /setup
-        # first, which is the thing this whole block exists to prevent.
-        [ -t 0 ] || die "no terminal to ask for the administrator on.
-  Set SKYSBX_ADMIN_USER and SKYSBX_ADMIN_PASSWORD, or run the script directly:
-    git clone https://github.com/${GH_OWNER}/skysbx-panel.git
-    sudo ./skysbx-panel/deploy/install-panel.sh --domain $DOMAIN"
+set -- --panel "$PANEL_URL" --token "$TOKEN"
+[ -n "$NODE_DOMAIN" ] && set -- "$@" --domain "$NODE_DOMAIN"
+[ -n "$CF_TOKEN" ] && set -- "$@" --cf-token "$CF_TOKEN"
 
-        printf '  Administrator username [admin]: '
-        read -r ADMIN_USER || die "no administrator given"
-        ADMIN_USER=${ADMIN_USER:-admin}
+# The two repositories intentionally use the same SKYSBX_REPO variable for
+# their standalone launchers.  Set it explicitly here so a custom panel source
+# cannot accidentally be cloned as the node source.
+SKYSBX_REPO=$NODE_REPO SKYSBX_REF=$NODE_REF sh "$NODE_INSTALL" "$@"
 
-        # Never echoed, and never an argument to anything: an argument is in
-        # the process list while it runs and in the shell's history after.
-        # Bounded, so a terminal that keeps returning EOF cannot spin here.
-        tries=0
-        while :; do
-            tries=$((tries + 1))
-            [ "$tries" -le 5 ] || die "giving up on the administrator password"
-
-            printf '  Administrator password (at least 12 characters): '
-            stty -echo 2>/dev/null || true
-            read -r ADMIN_PASS || { stty echo 2>/dev/null || true; die "no password given"; }
-            stty echo 2>/dev/null || true
-            printf '\n'
-            if [ "${#ADMIN_PASS}" -lt 12 ]; then
-                warn "too short — at least 12 characters"
-                ADMIN_PASS=""
-                continue
-            fi
-
-            printf '  Repeat it: '
-            stty -echo 2>/dev/null || true
-            read -r ADMIN_PASS2 || { stty echo 2>/dev/null || true; die "no password given"; }
-            stty echo 2>/dev/null || true
-            printf '\n'
-            if [ "$ADMIN_PASS" != "$ADMIN_PASS2" ]; then
-                warn "they do not match"
-                ADMIN_PASS=""
-                continue
-            fi
-            ADMIN_PASS2=""
-            break
-        done
-    fi
-
-    ADMIN_USER=${ADMIN_USER:-admin}
-    [ "${#ADMIN_PASS}" -ge 12 ] || die "the administrator password must be at least 12 characters"
-fi
-
-command -v curl >/dev/null || { apt-get update -qq && apt-get install -y -qq curl; }
-for p in git dig; do
-    command -v "$p" >/dev/null || apt-get install -y -qq git dnsutils
-done
-
-PUBLIC_IP=$(curl -fsS --max-time 10 https://api.ipify.org || echo "")
-RESOLVED=$( (dig +short "$DOMAIN" A @1.1.1.1 || true) | tail -1)
-if [ -z "$RESOLVED" ]; then
-    die "$DOMAIN has no A record"
-elif [ -n "$PUBLIC_IP" ] && [ "$RESOLVED" != "$PUBLIC_IP" ]; then
-    warn "$DOMAIN resolves to $RESOLVED but this host is $PUBLIC_IP"
-    warn "the ACME HTTP-01 challenge needs a direct route, so turn off any proxy"
-    if [ -t 0 ]; then
-        printf '  continue anyway? [y/N] '
-        read -r a; [ "$a" = y ] || [ "$a" = Y ] || exit 1
-    fi
-else
-    ok "$DOMAIN -> $RESOLVED (this host)"
-fi
-
-# Only check the ports on a first install: on an upgrade they are held by the
-# panel this script is about to replace.
-if ! systemctl is-enabled --quiet skysbx-panel 2>/dev/null; then
-    for port in 80 443; do
-        if ss -tlnH | awk '{print $4}' | grep -qE "[:.]$port\$"; then
-            die "port $port is in use; the panel terminates its own TLS and needs both"
-        fi
-    done
-    ok "ports 80 and 443 are free"
-fi
-
-# ──────────────────────────────── build ───────────────────────────────────
-
-install -d -m 0700 "$ROOT"
-BUILD=$ROOT/build
-mkdir -p "$BUILD"
-
-say "sources"
-if [ -n "$SRC_DIR" ]; then
-    rm -rf "$BUILD/skysbx-panel"
-    cp -a "$SRC_DIR" "$BUILD/skysbx-panel"
-    ok "using $SRC_DIR"
-else
-    URL="https://github.com/${GH_OWNER}/skysbx-panel.git"
-    rm -rf "$BUILD/skysbx-panel"
-    # The token goes in a per-command header, not in the URL: git writes the
-    # remote URL into the clone's .git/config, and a token in it would sit on
-    # disk for as long as the build directory does.
-    if [ -n "$GH_TOKEN" ]; then
-        git -c "http.extraHeader=Authorization: Basic $(printf 'x-access-token:%s' \
-            "$GH_TOKEN" | base64 -w0)" \
-            clone -q --branch "$REF" --depth 1 "$URL" "$BUILD/skysbx-panel" \
-            || die "cannot clone ${GH_OWNER}/skysbx-panel (check GITHUB_TOKEN)"
-    else
-        git clone -q --branch "$REF" --depth 1 "$URL" "$BUILD/skysbx-panel" \
-            || die "cannot clone ${GH_OWNER}/skysbx-panel (a private repo needs GITHUB_TOKEN)"
-    fi
-    ok "$(git -C "$BUILD/skysbx-panel" rev-parse --short HEAD)"
-fi
-
-# Sources that travelled through a Windows checkout carry CRLF, and bash then
-# fails on "bad interpreter".
-find "$BUILD" -type f -name '*.sh' -exec sed -i 's/\r$//' {} + 2>/dev/null || true
-
-if ! command -v docker >/dev/null; then
-    say "installing docker (used only to build; nothing runs in it)"
-    curl -fsSL https://get.docker.com | sh >/dev/null
-    # Remembered so --purge can remove Docker again without guessing. A host
-    # that already had it is running something in it.
-    touch "$ROOT/.docker-installed-by-skysbx"
-fi
-
-# Stamped into the binary so `--version` can answer what is running without
-# anyone reading a build log.
-VER=$(git -C "$BUILD/skysbx-panel" rev-parse --short HEAD 2>/dev/null || echo unknown)
-
-say "building"
-docker run --rm -v "$BUILD/skysbx-panel:/src" -w /src \
-    -e GOFLAGS=-buildvcs=false -e CGO_ENABLED=0 -e GOOS=linux \
-    golang:1.27 \
-    go build -trimpath -ldflags "-s -w -X main.version=$VER" -o /src/skysbx-panel ./cmd/panel
-install -m 0755 "$BUILD/skysbx-panel/skysbx-panel" "$ROOT/skysbx-panel"
-ok "panel binary installed"
-
-# Before the service starts, so there is never a moment where the panel is
-# reachable without an administrator. The password goes in on stdin — printf is
-# a shell builtin, so it never becomes a process with the password in its argv.
-if [ "$NEED_ADMIN" = yes ]; then
-    say "administrator"
-    printf '%s' "$ADMIN_PASS" | "$ROOT/skysbx-panel" \
-        -db "$ROOT/skysbx.db" -set-admin "$ADMIN_USER" >/dev/null \
-        || die "could not set the administrator"
-    ADMIN_PASS=""
-    ok "administrator $ADMIN_USER is set"
-fi
-
-# ─────────────────────────────── service ──────────────────────────────────
-
-say "service"
-# Kept beside the data rather than only in the unit file, so that --upgrade
-# still knows the domain after an --uninstall has removed the unit. Without it,
-# reinstalling would mean remembering and retyping what the panel already knew.
-cat > "$ROOT/panel.env" <<EOF
-SKYSBX_DOMAIN=${DOMAIN}
-SKYSBX_ACME_EMAIL=${EMAIL}
-EOF
-chmod 600 "$ROOT/panel.env"
-
-cat > /etc/systemd/system/skysbx-panel.service <<EOF
-[Unit]
-Description=skysbx panel
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-WorkingDirectory=${ROOT}
-ExecStart=${ROOT}/skysbx-panel --domain ${DOMAIN} --acme-email ${EMAIL} --db ${ROOT}/skysbx.db
-Restart=always
-RestartSec=3
-
-# Binding 80 and 443 is the only privilege it needs.
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-NoNewPrivileges=yes
-ProtectSystem=strict
-ProtectHome=yes
-PrivateTmp=yes
-ReadWritePaths=${ROOT}
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable -q skysbx-panel
-systemctl restart skysbx-panel
-ok "systemd unit installed"
-
-printf '    waiting for a certificate '
-for _ in $(seq 1 60); do
-    if curl -fsS --max-time 5 "https://$DOMAIN/login" >/dev/null 2>&1; then
-        printf '\n'; ok "https://$DOMAIN is live"
-        break
-    fi
-    printf '.'; sleep 3
-done
-
-if [ "$NEED_ADMIN" = yes ]; then
-    LOGIN_LINE="Sign in  https://${DOMAIN}/login   as ${ADMIN_USER}"
-    NEXT_LINE="Next: sign in, then add a node and copy its join token."
-else
-    LOGIN_LINE="Sign in  https://${DOMAIN}/login"
-    NEXT_LINE="Next: sign in. Forgot the password? ${ROOT}/skysbx-panel -db ${ROOT}/skysbx.db -set-admin <user>"
-fi
-
-cat <<EOF
-
-${GRN}skysbx panel
-===========
-Panel     https://${DOMAIN}
-${LOGIN_LINE}
-Data      ${ROOT}/skysbx.db          ← the whole of the panel's state
-
-Logs      journalctl -u skysbx-panel -f
-
-${NEXT_LINE}${RST}
-EOF
+printf '\n%sskysbx panel and node are installed on this host.%s\n' "$GRN" "$RST"
