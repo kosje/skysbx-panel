@@ -16,6 +16,7 @@ DOMAIN=""
 EMAIL=""
 PANEL_URL=""
 TOKEN=""
+ACTION=install
 
 RED=$(printf '\033[31m'); GRN=$(printf '\033[32m'); BLD=$(printf '\033[1m'); RST=$(printf '\033[0m')
 say() { printf '%s==>%s %s\n' "$BLD" "$RST" "$*"; }
@@ -34,6 +35,10 @@ join token when prompted (or provide it with --token).
   --email <addr>        Let's Encrypt contact email for the panel.
   --panel <url>         Panel URL for the node (default: https://<panel-fqdn>).
   --token <token>       Node join token created in the panel UI.
+  --version             Show the installed panel and node versions.
+  --upgrade             Rebuild and restart both services.
+  --uninstall           Remove both services; keep their data and certificates.
+  --purge               Remove both services and all data (cannot be undone).
   -h, --help            Show this help.
 
 The node reuses the certificate already obtained by the local panel. Do not
@@ -51,6 +56,10 @@ while [ "$#" -gt 0 ]; do
         --email) EMAIL=${2-}; shift 2 ;;
         --panel) PANEL_URL=${2-}; shift 2 ;;
         --token) TOKEN=${2-}; shift 2 ;;
+        --version) ACTION=version; shift ;;
+        --upgrade) ACTION=upgrade; shift ;;
+        --uninstall) ACTION=uninstall; shift ;;
+        --purge) ACTION=purge; shift ;;
         --node-domain|--cf-token)
             die "$1 is not supported for a same-host install; the node reuses the panel certificate" ;;
         -h|--help) usage; exit 0 ;;
@@ -69,17 +78,18 @@ fi
 # Keep the usual installation path fully interactive. Command-line options are
 # still useful for automation, but a person should not have to remember a set
 # of environment variables or flags just to begin a same-host installation.
-if [ -z "$DOMAIN" ] && [ -t 0 ]; then
+if [ "$ACTION" = install ] && [ -z "$DOMAIN" ] && [ -t 0 ]; then
     printf '  Panel domain (must already resolve here): '
     read -r DOMAIN
 fi
-[ -n "$DOMAIN" ] || { usage >&2; die '--domain is required without a terminal'; }
+[ "$ACTION" != install ] || [ -n "$DOMAIN" ] \
+    || { usage >&2; die '--domain is required without a terminal'; }
 
-if [ -z "$EMAIL" ] && [ -t 0 ]; then
+if [ "$ACTION" = install ] && [ -z "$EMAIL" ] && [ -t 0 ]; then
     printf "  Let's Encrypt contact email [skip]: "
     read -r EMAIL
 fi
-PANEL_URL=${PANEL_URL:-"https://$DOMAIN"}
+[ "$ACTION" != install ] || PANEL_URL=${PANEL_URL:-"https://$DOMAIN"}
 
 if ! command -v git >/dev/null 2>&1; then
     say 'installing git'
@@ -103,10 +113,15 @@ git clone -q --branch "$PANEL_REF" --depth 1 "$PANEL_REPO" "$SRC/skysbx-panel" \
 
 # Run the real panel installer from the checked-out source, rather than piping
 # it, so its administrator prompt keeps a usable stdin.
-set -- --domain "$DOMAIN"
-[ -n "$EMAIL" ] && set -- "$@" --email "$EMAIL"
+if [ "$ACTION" = install ]; then
+    set -- --domain "$DOMAIN"
+    [ -n "$EMAIL" ] && set -- "$@" --email "$EMAIL"
+else
+    set -- "--$ACTION"
+fi
 bash "$SRC/skysbx-panel/deploy/install-panel.sh" "$@"
 
+if [ "$ACTION" = install ] || [ "$ACTION" = upgrade ]; then
 # CertMagic keeps the panel certificate under its own storage tree, while the
 # node's default AnyTLS paths are /opt/skysbx/cert.pem and key.pem. Symlinking
 # them lets both services use one certificate and prevents the node installer
@@ -118,8 +133,9 @@ PANEL_KEY=${PANEL_CERT%.crt}.key
 ln -sfn "$PANEL_CERT" "$ROOT/cert.pem"
 ln -sfn "$PANEL_KEY" "$ROOT/key.pem"
 ok "node will reuse the panel certificate"
+fi
 
-if [ -z "$TOKEN" ]; then
+if [ "$ACTION" = install ] && [ -z "$TOKEN" ]; then
     if [ -t 0 ]; then
         printf '\nCreate a node at %s, then paste its one-time join token: ' "$PANEL_URL"
         read -r TOKEN
@@ -133,7 +149,11 @@ git clone -q --branch "$NODE_REF" --depth 1 "$NODE_REPO" "$SRC/skysbx-node" \
 NODE_INSTALL=$SRC/skysbx-node/install.sh
 [ -f "$NODE_INSTALL" ] || die "node installer is missing from $NODE_REPO"
 
-set -- --panel "$PANEL_URL" --token "$TOKEN"
+if [ "$ACTION" = install ]; then
+    set -- --panel "$PANEL_URL" --token "$TOKEN"
+else
+    set -- "--$ACTION"
+fi
 
 # install-panel.sh leaves these Docker-mounted caches under $ROOT. The node is
 # a separate repository, so its installer cannot otherwise see the panel
@@ -141,14 +161,15 @@ set -- --panel "$PANEL_URL" --token "$TOKEN"
 # node installer runs; every `docker run` it makes mounts the same caches.
 # System packages and the Docker daemon are already installed by the panel
 # installer, while shared Go modules now come from the local cache as well.
-REAL_DOCKER=$(command -v docker)
-[ -n "$REAL_DOCKER" ] || die "docker disappeared after installing the panel"
-GO_MOD_CACHE=$ROOT/go-mod-cache
-GO_BUILD_CACHE=$ROOT/go-build-cache
-install -d -m 0700 "$GO_MOD_CACHE" "$GO_BUILD_CACHE"
-DOCKER_SHIM_DIR=$SRC/docker-shim
-mkdir -p "$DOCKER_SHIM_DIR"
-cat > "$DOCKER_SHIM_DIR/docker" <<'EOF'
+if [ "$ACTION" = install ] || [ "$ACTION" = upgrade ]; then
+    REAL_DOCKER=$(command -v docker)
+    [ -n "$REAL_DOCKER" ] || die "docker disappeared after installing the panel"
+    GO_MOD_CACHE=$ROOT/go-mod-cache
+    GO_BUILD_CACHE=$ROOT/go-build-cache
+    install -d -m 0700 "$GO_MOD_CACHE" "$GO_BUILD_CACHE"
+    DOCKER_SHIM_DIR=$SRC/docker-shim
+    mkdir -p "$DOCKER_SHIM_DIR"
+    cat > "$DOCKER_SHIM_DIR/docker" <<'EOF'
 #!/bin/sh
 set -eu
 if [ "${1-}" = run ]; then
@@ -159,15 +180,20 @@ if [ "${1-}" = run ]; then
 fi
 exec "$SKYSBX_REAL_DOCKER" "$@"
 EOF
-chmod 700 "$DOCKER_SHIM_DIR/docker"
+    chmod 700 "$DOCKER_SHIM_DIR/docker"
+fi
 
 # The two repositories intentionally use the same SKYSBX_REPO variable for
 # their standalone launchers.  Set it explicitly here so a custom panel source
 # cannot accidentally be cloned as the node source.
-PATH="$DOCKER_SHIM_DIR:$PATH" \
-SKYSBX_REAL_DOCKER=$REAL_DOCKER \
-SKYSBX_GO_MOD_CACHE=$GO_MOD_CACHE \
-SKYSBX_GO_BUILD_CACHE=$GO_BUILD_CACHE \
-SKYSBX_REPO=$NODE_REPO SKYSBX_REF=$NODE_REF sh "$NODE_INSTALL" "$@"
+if [ "$ACTION" = install ] || [ "$ACTION" = upgrade ]; then
+    PATH="$DOCKER_SHIM_DIR:$PATH" \
+    SKYSBX_REAL_DOCKER=$REAL_DOCKER \
+    SKYSBX_GO_MOD_CACHE=$GO_MOD_CACHE \
+    SKYSBX_GO_BUILD_CACHE=$GO_BUILD_CACHE \
+    SKYSBX_REPO=$NODE_REPO SKYSBX_REF=$NODE_REF sh "$NODE_INSTALL" "$@"
+else
+    SKYSBX_REPO=$NODE_REPO SKYSBX_REF=$NODE_REF sh "$NODE_INSTALL" "$@"
+fi
 
 printf '\n%sskysbx panel and node are installed on this host.%s\n' "$GRN" "$RST"
