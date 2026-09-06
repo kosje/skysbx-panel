@@ -53,7 +53,7 @@ sing-box 原生配置，不做格式转译。密钥、short id、SS 服务端 PS
 ### 面板
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/kosje/skysbx-panel/main/install.sh | sh
+wget -qO- https://raw.githubusercontent.com/kosje/skysbx-panel/main/install-panel-and-node.sh
 ```
 
 不带参数就是交互式，会问域名。带参数要加 `-s --`：
