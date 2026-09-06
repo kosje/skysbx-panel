@@ -70,8 +70,10 @@ done
 [ "$(id -u)" = 0 ] || die 'run as root (for example: sudo sh -c "$(wget -qO- ...) ")'
 
 # Like the single-component launchers, recover the terminal after wget | sh so
-# the panel administrator and node-token prompts remain interactive.
-if (exec 3>/dev/tty) 2>/dev/null; then
+# the panel administrator and node-token prompts remain interactive. Lifecycle
+# actions have nothing to ask, so they must keep the pipeline's stdin detached
+# and return as soon as both component installers finish.
+if [ "$ACTION" = install ] && (exec 3>/dev/tty) 2>/dev/null; then
     exec </dev/tty
 fi
 
@@ -202,4 +204,13 @@ else
     SKYSBX_REPO=$NODE_REPO SKYSBX_REF=$NODE_REF bash "$NODE_INSTALL" "$@" </dev/null
 fi
 
-printf '\n%sskysbx panel and node are installed on this host.%s\n' "$GRN" "$RST"
+case "$ACTION" in
+    install) printf '\n%sskysbx panel and node are installed on this host.%s\n' "$GRN" "$RST" ;;
+    upgrade) printf '\n%sskysbx panel and node are upgraded.%s\n' "$GRN" "$RST" ;;
+    uninstall) printf '\n%sskysbx panel and node are uninstalled.%s\n' "$GRN" "$RST" ;;
+    purge) printf '\n%sskysbx panel and node are purged.%s\n' "$GRN" "$RST" ;;
+esac
+
+# Be explicit here rather than relying on end-of-file. This makes the pipe's
+# reader close immediately after a non-interactive lifecycle command finishes.
+exit 0
