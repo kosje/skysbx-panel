@@ -139,6 +139,18 @@ func (s *Store) ResetUserTraffic(id int64) error {
 	return err
 }
 
+// TouchUserReset starts the cycle now without zeroing anything.
+//
+// Switching a schedule on must not retroactively wipe usage. Without this, an
+// account created in January and given a reset day today would be measured
+// against a cycle boundary months in the past, be found overdue, and lose its
+// counter the moment the sweep next ran — which is not what "from now on, reset
+// monthly" means to the person who just asked for it.
+func (s *Store) TouchUserReset(id int64) error {
+	_, err := s.db.Exec(`UPDATE users SET last_reset_at = unixepoch() WHERE id = ?`, id)
+	return err
+}
+
 // UserInboundIDs returns the inbounds a user is restricted to. An empty result
 // means unrestricted — see the user_inbounds comment in the schema.
 func (s *Store) UserInboundIDs(userID int64) ([]int64, error) {

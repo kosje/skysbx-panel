@@ -67,18 +67,17 @@ func NextScheduledReset(day int, now time.Time) time.Time {
 }
 
 // resetDue reports whether this user's counter should be zeroed now.
+//
+// A nil LastResetAt is *not* due. It means the cycle has no start point — a row
+// that predates the column — and treating "never reset" as "overdue" would wipe
+// the usage of every existing account the first time the sweep ran after an
+// upgrade. RunDueResets gives it a start point instead, and the first real reset
+// happens on the next scheduled day.
 func resetDue(u *store.User, now time.Time) bool {
-	day := ClampResetDay(u.ResetDay)
-	if day == 0 {
+	if ClampResetDay(u.ResetDay) == 0 || u.LastResetAt == nil {
 		return false
 	}
-	due := LastScheduledReset(day, now)
-	if u.LastResetAt == nil {
-		// A row from before the column existed. Its allowance has never been
-		// reset, so the most recent scheduled one is owed.
-		return true
-	}
-	return u.LastResetAt.Before(due)
+	return u.LastResetAt.Before(LastScheduledReset(u.ResetDay, now))
 }
 
 // RunDueResets zeroes the counter for every user whose reset day has passed
@@ -102,6 +101,15 @@ func (s *Service) RunDueResets() (int, error) {
 
 	n := 0
 	for _, u := range users {
+		// A schedule with no start point gets one, without losing anything.
+		// This is the state every row is in immediately after the column was
+		// added, so getting it wrong would wipe the whole panel once.
+		if ClampResetDay(u.ResetDay) > 0 && u.LastResetAt == nil {
+			if err := s.st.TouchUserReset(u.ID); err != nil {
+				return n, err
+			}
+			continue
+		}
 		if !resetDue(u, now) {
 			continue
 		}

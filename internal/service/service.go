@@ -124,8 +124,21 @@ func (s *Service) UpdateUser(u *store.User) error {
 	if u.IPLimit < 0 {
 		return invalid("address limit cannot be negative")
 	}
+	prev, err := s.st.User(u.ID)
+	if err != nil {
+		return err
+	}
 	if err := s.st.UpdateUser(u); err != nil {
 		return err
+	}
+	// Switching a schedule on starts the cycle now. Otherwise an account that
+	// has been running for months would be measured against a boundary in the
+	// past, be found overdue, and lose its counter on the next sweep — which is
+	// not what "from now on, reset monthly" means to whoever just asked for it.
+	if prev.ResetDay == 0 && u.ResetDay > 0 {
+		if err := s.st.TouchUserReset(u.ID); err != nil {
+			return err
+		}
 	}
 	s.notify.UsersChanged()
 	return nil

@@ -223,3 +223,82 @@ func TestAManualResetSatisfiesTheSchedule(t *testing.T) {
 		t.Errorf("the scheduler reset an account that was just reset by hand")
 	}
 }
+
+// Switching a schedule on must not retroactively wipe a counter.
+//
+// This is the case every account is in right after the feature is added, so
+// getting it wrong empties the whole panel once. An account that has been
+// running for months would otherwise be measured against a cycle boundary in
+// the past, be found overdue, and lose its usage on the next sweep.
+func TestTurningTheScheduleOnDoesNotWipeAnything(t *testing.T) {
+	svc := resetFixture(t)
+	u, err := svc.CreateUser(NewUser{Name: "alice", TrafficLimit: 50 << 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An old account: created months ago, plenty of usage, never reset.
+	if _, err := svc.Store().DB().Exec(
+		`UPDATE users SET traffic_used = ?, created_at = ?, last_reset_at = NULL
+		 WHERE id = ?`, int64(30<<30),
+		time.Now().AddDate(0, -8, 0).Unix(), u.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// The operator turns on a reset day that already passed this month.
+	got, _ := svc.User(u.ID)
+	got.ResetDay = ClampResetDay(time.Now().AddDate(0, 0, -1).Day())
+	if got.ResetDay == 0 {
+		t.Skip("first of the month; no earlier day to test with")
+	}
+	if err := svc.UpdateUser(got); err != nil {
+		t.Fatal(err)
+	}
+
+	if n, err := svc.RunDueResets(); err != nil || n != 0 {
+		t.Fatalf("turning the schedule on reset %d accounts (%v)", n, err)
+	}
+	after, _ := svc.User(u.ID)
+	if after.TrafficUsed != 30<<30 {
+		t.Errorf("usage was wiped: %d", after.TrafficUsed)
+	}
+	if after.LastResetAt == nil {
+		t.Error("the cycle was left without a start point; it would wipe later")
+	}
+}
+
+// A row that predates the column has a schedule but no start point only if one
+// was written directly. The sweep must give it a start point rather than treat
+// "never reset" as "overdue".
+func TestAScheduleWithNoStartPointIsStampedNotReset(t *testing.T) {
+	svc := resetFixture(t)
+	u, err := svc.CreateUser(NewUser{Name: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Store().DB().Exec(
+		`UPDATE users SET traffic_used = 4242, reset_day = 1, last_reset_at = NULL
+		 WHERE id = ?`, u.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if n, _ := svc.RunDueResets(); n != 0 {
+		t.Error("a schedule with no start point was treated as overdue")
+	}
+	after, _ := svc.User(u.ID)
+	if after.TrafficUsed != 4242 {
+		t.Errorf("usage was wiped: %d", after.TrafficUsed)
+	}
+	if after.LastResetAt == nil {
+		t.Fatal("no start point was recorded, so the next sweep would wipe it")
+	}
+
+	// And from here the schedule works normally.
+	if _, err := svc.Store().DB().Exec(
+		`UPDATE users SET last_reset_at = ? WHERE id = ?`,
+		time.Now().AddDate(0, -2, 0).Unix(), u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := svc.RunDueResets(); n != 1 {
+		t.Error("the schedule does not fire once it has a start point")
+	}
+}
