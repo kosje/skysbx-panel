@@ -101,6 +101,7 @@ if [ "$ACTION" = uninstall ] || [ "$ACTION" = purge ]; then
         rm -f "$ROOT/skysbx.db" "$ROOT/skysbx.db-wal" "$ROOT/skysbx.db-shm"
         rm -f "$ROOT/panel.env"
         rm -rf "$ROOT/certs"
+        rm -rf "$ROOT/go-mod-cache" "$ROOT/go-build-cache"
         ok "database and certificates deleted"
         if command -v docker >/dev/null 2>&1; then
             docker image rm golang:1.27 >/dev/null 2>&1 \
@@ -270,6 +271,12 @@ fi
 install -d -m 0700 "$ROOT"
 BUILD=$ROOT/build
 mkdir -p "$BUILD"
+# Keep Go's module and compilation caches outside the disposable build tree.
+# Besides making a panel upgrade quicker, the same caches can be mounted by the
+# same-host node installer so shared modules are downloaded only once.
+GO_MOD_CACHE=$ROOT/go-mod-cache
+GO_BUILD_CACHE=$ROOT/go-build-cache
+install -d -m 0700 "$GO_MOD_CACHE" "$GO_BUILD_CACHE"
 
 say "sources"
 if [ -n "$SRC_DIR" ]; then
@@ -312,6 +319,7 @@ VER=$(git -C "$BUILD/skysbx-panel" rev-parse --short HEAD 2>/dev/null || echo un
 
 say "building"
 docker run --rm -v "$BUILD/skysbx-panel:/src" -w /src \
+    -v "$GO_MOD_CACHE:/go/pkg/mod" -v "$GO_BUILD_CACHE:/root/.cache/go-build" \
     -e GOFLAGS=-buildvcs=false -e CGO_ENABLED=0 -e GOOS=linux \
     golang:1.27 \
     go build -trimpath -ldflags "-s -w -X main.version=$VER" -o /src/skysbx-panel ./cmd/panel
