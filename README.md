@@ -84,11 +84,18 @@ sudo ./deploy/install-panel.sh --domain panel.example.com --email you@example.co
 stdin 交给二进制，不会出现在进程列表或 shell 历史里。装完直接
 `https://panel.example.com/login` 登录。
 
+没有终端可问的话（CI、`wget | sh` 且没有 tty），用环境变量代替，脚本不会静默跳过：
+
+```bash
+SKYSBX_ADMIN_USER=admin SKYSBX_ADMIN_PASSWORD='...' \
+  ./deploy/install-panel.sh --domain panel.example.com
+```
+
 忘了密码：
 
 ```bash
 /opt/skysbx/skysbx-panel -db /opt/skysbx/skysbx.db -set-admin <用户名>
-# 然后在提示后输入新密码（从 stdin 读，不回显也不进 argv）
+# 然后输入新密码（从 stdin 读，不回显也不进 argv）
 ```
 
 升级不需要停机以外的动作，数据库迁移在启动时自动跑，也不会再问管理员。

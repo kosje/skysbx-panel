@@ -180,38 +180,58 @@ fi
 NEED_ADMIN=no
 if [ "$ACTION" = install ] && [ ! -f "$ROOT/skysbx.db" ]; then
     NEED_ADMIN=yes
-    while [ -z "$ADMIN_USER" ]; do
+    ADMIN_USER=${SKYSBX_ADMIN_USER:-}
+    ADMIN_PASS=${SKYSBX_ADMIN_PASSWORD:-}
+
+    if [ -z "$ADMIN_PASS" ]; then
+        # No terminal means no way to ask. Refusing beats carrying on: the
+        # alternative is a panel whose administrator is whoever opens /setup
+        # first, which is the thing this whole block exists to prevent.
+        [ -t 0 ] || die "no terminal to ask for the administrator on.
+  Set SKYSBX_ADMIN_USER and SKYSBX_ADMIN_PASSWORD, or run the script directly:
+    git clone https://github.com/${GH_OWNER}/skysbx-panel.git
+    sudo ./skysbx-panel/deploy/install-panel.sh --domain $DOMAIN"
+
         printf '  Administrator username [admin]: '
-        read -r ADMIN_USER
+        read -r ADMIN_USER || die "no administrator given"
         ADMIN_USER=${ADMIN_USER:-admin}
-    done
-    while :; do
-        # -s so it is not echoed, and never as an argument to anything: an
-        # argument is in the process list while it runs and in the shell's
-        # history afterwards.
-        printf '  Administrator password (at least 12 characters): '
-        stty -echo 2>/dev/null || true
-        read -r ADMIN_PASS
-        stty echo 2>/dev/null || true
-        printf '\n'
-        if [ "${#ADMIN_PASS}" -lt 12 ]; then
-            warn "too short — at least 12 characters"
-            ADMIN_PASS=""
-            continue
-        fi
-        printf '  Repeat it: '
-        stty -echo 2>/dev/null || true
-        read -r ADMIN_PASS2
-        stty echo 2>/dev/null || true
-        printf '\n'
-        if [ "$ADMIN_PASS" != "$ADMIN_PASS2" ]; then
-            warn "they do not match"
-            ADMIN_PASS=""
-            continue
-        fi
-        ADMIN_PASS2=""
-        break
-    done
+
+        # Never echoed, and never an argument to anything: an argument is in
+        # the process list while it runs and in the shell's history after.
+        # Bounded, so a terminal that keeps returning EOF cannot spin here.
+        tries=0
+        while :; do
+            tries=$((tries + 1))
+            [ "$tries" -le 5 ] || die "giving up on the administrator password"
+
+            printf '  Administrator password (at least 12 characters): '
+            stty -echo 2>/dev/null || true
+            read -r ADMIN_PASS || { stty echo 2>/dev/null || true; die "no password given"; }
+            stty echo 2>/dev/null || true
+            printf '\n'
+            if [ "${#ADMIN_PASS}" -lt 12 ]; then
+                warn "too short — at least 12 characters"
+                ADMIN_PASS=""
+                continue
+            fi
+
+            printf '  Repeat it: '
+            stty -echo 2>/dev/null || true
+            read -r ADMIN_PASS2 || { stty echo 2>/dev/null || true; die "no password given"; }
+            stty echo 2>/dev/null || true
+            printf '\n'
+            if [ "$ADMIN_PASS" != "$ADMIN_PASS2" ]; then
+                warn "they do not match"
+                ADMIN_PASS=""
+                continue
+            fi
+            ADMIN_PASS2=""
+            break
+        done
+    fi
+
+    ADMIN_USER=${ADMIN_USER:-admin}
+    [ "${#ADMIN_PASS}" -ge 12 ] || die "the administrator password must be at least 12 characters"
 fi
 
 command -v curl >/dev/null || { apt-get update -qq && apt-get install -y -qq curl; }
