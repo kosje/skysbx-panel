@@ -3,7 +3,7 @@
 #
 #   wget -qO- https://raw.githubusercontent.com/kosje/skysbx-panel/main/install.sh | sh
 #
-# Arguments go through to deploy/install-panel-and-node.sh after `-s --`:
+# Arguments go through to deploy/install-panel.sh after `-s --`:
 #
 #   ... | sh -s -- --domain panel.example.com --email you@example.com
 #   ... | sh -s -- --version      what is installed
@@ -57,6 +57,6 @@ git clone -q --branch "$REF" --depth 1 "$REPO" "$SRC/skysbx-panel" \
 # which fails on the first line with "Illegal option -o pipefail".
 command -v bash >/dev/null 2>&1 || die "bash is required"
 if ( exec 3>/dev/tty ) 2>/dev/null; then
-    exec bash "$SRC/skysbx-panel/deploy/install-panel-and-node.sh" "$@" </dev/tty
+    exec bash "$SRC/skysbx-panel/deploy/install-panel.sh" "$@" </dev/tty
 fi
-exec bash "$SRC/skysbx-panel/deploy/install-panel-and-node.sh" "$@"
+exec bash "$SRC/skysbx-panel/deploy/install-panel.sh" "$@"
