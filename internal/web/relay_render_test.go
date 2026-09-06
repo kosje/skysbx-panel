@@ -101,3 +101,56 @@ func TestRelayUIRenders(t *testing.T) {
 		t.Error("the section is shown on a node that carries no relays")
 	}
 }
+
+// With one node there is nowhere to relay to, and hiding the control there left
+// the help text describing a field that was not on the page. The control stays,
+// disabled, and says what is missing.
+func TestRelaySelectExplainsItselfOnASingleNodePanel(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	svc := service.New(st)
+	node, _, err := svc.CreateNode("tokyo", "jp.example.com", "JP")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err := svc.CreateInbound(node.ID, service.InboundSpec{
+		Protocol: store.ProtoShadowsocks, Port: 8388,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv, err := New(svc, &fakeChannel{connected: true, known: true,
+		tags: map[string]bool{in.Tag: true}},
+		slog.New(slog.NewTextHandler(io.Discard, nil)), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/nodes/1/inbounds", nil)
+	srv.renderInboundsFull(w, r, node.ID, http.StatusOK, 0)
+	body := w.Body.String()
+
+	for _, want := range []string{"站内中转", `name="relay_node_id"`,
+		"disabled", "需要至少两个节点", "只有这一个节点"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the create form is missing %q", want)
+		}
+	}
+
+	// The edit form too, and it must not offer this node as its own relay.
+	w = httptest.NewRecorder()
+	srv.renderInboundsFull(w, r, node.ID, http.StatusOK, in.ID)
+	body = w.Body.String()
+	if !strings.Contains(body, "需要至少两个节点") {
+		t.Error("the edit form hides the relay select instead of explaining it")
+	}
+	if strings.Contains(body, "经由 tokyo") {
+		t.Error("the node was offered as a relay for its own inbound")
+	}
+}

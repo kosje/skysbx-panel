@@ -17,18 +17,28 @@
              value="443" style="min-width:6rem"></label>
       {{/* Two ways to put this inbound somewhere other than its own node, and
            they answer the same question, so choosing one disables the other.
-           The select is站内中转: a node this panel already manages runs the
-           forwarder itself, and the panel writes its config. */}}
-      {{if .RelayNodes}}
+           The select is 站内中转: a node this panel already manages runs the
+           forwarder itself, and the panel writes its config.
+
+           Rendered even with nowhere to relay to, disabled and saying why. A
+           panel with one node has no candidates, and hiding the control there
+           left the paragraph below describing a field that was not on the
+           page — which reads as a bug rather than as a precondition. A
+           disabled select submits nothing, so the handler still sees "no
+           relay". */}}
       <label>站内中转（可选）
-        <select name="relay_node_id" id="n-relay" onchange="onRelay()">
-          <option value="">不中转 —— 客户端直连本节点</option>
-          {{range .RelayNodes}}<option value="{{.ID}}">经由 {{.Name}}（{{.Address}}）</option>{{end}}
+        <select name="relay_node_id" id="n-relay" onchange="onRelay()"
+                {{if not .RelayNodes}}disabled{{end}}>
+          {{if .RelayNodes}}
+            <option value="">不中转 —— 客户端直连本节点</option>
+            {{range .RelayNodes}}<option value="{{.ID}}">经由 {{.Name}}（{{.Address}}）</option>{{end}}
+          {{else}}
+            <option value="">需要至少两个节点</option>
+          {{end}}
         </select></label>
       <label id="n-relayport" hidden>中转机监听端口
         <input name="relay_port" type="number" min="1" max="65535" value="443"
                style="min-width:6rem"></label>
-      {{end}}
 
       <label id="n-addr">外部中转地址（留空 = 节点地址；可带端口）
         <input name="address" placeholder="{{.Node.Address}}" style="min-width:15rem"></label>
@@ -53,6 +63,12 @@
       <strong>站内中转</strong>是让另一台节点开一个 L4 转发口把流量原样搬过来 ——
       不解密、不认证，协议照旧在本节点上终结，所以按用户计流量、IP 限制、活动记录
       全都不受影响。选了中转就不要再填外部中转地址，两个字段回答的是同一个问题。
+      {{if not .RelayNodes}}
+        <br><span class="pill warn-pill">当前不可用</span>
+        面板里只有这一个节点，没有别的节点可以当中转机 ——
+        <a href="/nodes">再加一个节点</a>后这里就能选了。中转机本身也是一个正常节点，
+        可以同时跑自己的入站。
+      {{end}}
     </p>
   </div>
   {{template "inbound-table" .}}
@@ -123,21 +139,29 @@ onRelay();
             <label>tag<input value="{{.Tag}}" disabled style="opacity:.5"></label>
             <label>端口<input name="port" type="number" min="1" max="65535" required
                    value="{{.Port}}" style="min-width:6rem"></label>
-            {{if $.RelayNodes}}
+            {{/* Shown even with no candidates, disabled and saying why — see
+                 the create form. A disabled select submits nothing, which is
+                 the same as "no relay", so an edit here cannot silently drop
+                 a relay that was already set: with a relay set there is by
+                 definition another node, so the select is never disabled. */}}
             <label>站内中转
-              <select name="relay_node_id" id="e-relay" onchange="onEditRelay()">
-                <option value="">不中转 —— 客户端直连本节点</option>
-                {{range $.RelayNodes}}
-                  <option value="{{.ID}}"
-                    {{if eq .ID $.EditRelayNodeID}}selected{{end}}
-                    >经由 {{.Name}}（{{.Address}}）</option>
+              <select name="relay_node_id" id="e-relay" onchange="onEditRelay()"
+                      {{if not $.RelayNodes}}disabled{{end}}>
+                {{if $.RelayNodes}}
+                  <option value="">不中转 —— 客户端直连本节点</option>
+                  {{range $.RelayNodes}}
+                    <option value="{{.ID}}"
+                      {{if eq .ID $.EditRelayNodeID}}selected{{end}}
+                      >经由 {{.Name}}（{{.Address}}）</option>
+                  {{end}}
+                {{else}}
+                  <option value="">需要至少两个节点</option>
                 {{end}}
               </select></label>
             <label id="e-relayport">中转机监听端口
               <input name="relay_port" type="number" min="1" max="65535"
                      value="{{if .RelayPort}}{{.RelayPort}}{{else}}443{{end}}"
                      style="min-width:6rem"></label>
-            {{end}}
             <label id="e-addr">外部中转地址（留空 = 节点地址；可带端口）
               <input name="address" value="{{.Address}}"
                      placeholder="{{$.Node.Address}}" style="min-width:15rem"></label>
