@@ -132,13 +132,37 @@ wget -qO- $N | sh -s -- --purge        # 连证书、构建缓存、脚本装的
 
 > 节点域名必须是 **DNS-only（灰云）**。三个协议都不是 HTTP，套 CDN 会全部失效。
 
+### 同机安装面板和节点
+
+一台服务器同时跑面板和节点时，使用下面的一键命令。它会先安装面板；面板上线后，在网页的
+**节点 → 新增**创建节点并复制一次性接入 token，回到终端粘贴即可继续安装节点：
+
+```bash
+wget -qO- https://raw.githubusercontent.com/kosje/skysbx-panel/main/install-panel-and-node.sh | \
+  sudo sh -s -- --domain panel.example.com --email you@example.com
+```
+
+非交互环境可直接提供 token。`--panel` 默认是 `https://<面板域名>`；只有该节点要使用
+AnyTLS 时才需要 `--node-domain`（以及可选的 `--cf-token`）：
+
+```bash
+I=https://raw.githubusercontent.com/kosje/skysbx-panel/main/install-panel-and-node.sh
+wget -qO- "$I" | sudo sh -s -- \
+  --domain panel.example.com --token '<node-token>' \
+  --node-domain node.example.com
+```
+
+同机运行时，面板占用 `80` 和 `443`；为该节点新建 Reality 入站时请选择其他端口。节点仍然
+通过 WebSocket 主动连接面板，不会额外开放控制端口。
+
 ### 离线 / 自建镜像
 
 `--src`（面板或节点源码）和 `--fork`（打过补丁的 sing-box）可以指向本机已有的检出，
 完全不联网安装。仓库设为私有的话，`export GITHUB_TOKEN=...` 后再跑；token 走
 per-command header，不会落到 `.git/config` 里。
 
-一键脚本认这几个环境变量：`SKYSBX_REPO`、`SKYSBX_FORK`、`SKYSBX_REF`。
+单组件一键脚本认这几个环境变量：`SKYSBX_REPO`、`SKYSBX_FORK`、`SKYSBX_REF`。同机脚本
+还可用 `SKYSBX_NODE_REPO` 和 `SKYSBX_NODE_REF` 分别指定节点源码和分支。
 
 ## 开发
 
