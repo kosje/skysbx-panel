@@ -24,13 +24,13 @@ die() { printf '%s fail%s %s\n' "$RED" "$RST" "$*" >&2; exit 1; }
 
 usage() {
     cat <<'EOF'
-Usage: sudo sh install-panel-and-node.sh --domain <panel-fqdn> [options]
+Usage: sudo sh install-panel-and-node.sh [options]
 
 Installs the panel first, then installs a node connected to that same panel.
 After the panel is online, create a node in its web UI and paste the one-time
 join token when prompted (or provide it with --token).
 
-  --domain <fqdn>       Panel domain (required; must resolve to this host).
+  --domain <fqdn>       Panel domain (prompts when omitted; must resolve here).
   --email <addr>        Let's Encrypt contact email for the panel.
   --panel <url>         Panel URL for the node (default: https://<panel-fqdn>).
   --token <token>       Node join token created in the panel UI.
@@ -57,14 +57,27 @@ while [ "$#" -gt 0 ]; do
 done
 
 [ "$(id -u)" = 0 ] || die 'run as root (for example: sudo sh -c "$(wget -qO- ...) ")'
-[ -n "$DOMAIN" ] || { usage >&2; die '--domain is required'; }
-PANEL_URL=${PANEL_URL:-"https://$DOMAIN"}
 
 # Like the single-component launchers, recover the terminal after wget | sh so
 # the panel administrator and node-token prompts remain interactive.
 if (exec 3>/dev/tty) 2>/dev/null; then
     exec </dev/tty
 fi
+
+# Keep the usual installation path fully interactive. Command-line options are
+# still useful for automation, but a person should not have to remember a set
+# of environment variables or flags just to begin a same-host installation.
+if [ -z "$DOMAIN" ] && [ -t 0 ]; then
+    printf '  Panel domain (must already resolve here): '
+    read -r DOMAIN
+fi
+[ -n "$DOMAIN" ] || { usage >&2; die '--domain is required without a terminal'; }
+
+if [ -z "$EMAIL" ] && [ -t 0 ]; then
+    printf "  Let's Encrypt contact email [skip]: "
+    read -r EMAIL
+fi
+PANEL_URL=${PANEL_URL:-"https://$DOMAIN"}
 
 if ! command -v git >/dev/null 2>&1; then
     say 'installing git'
@@ -98,6 +111,15 @@ if [ -z "$TOKEN" ]; then
         read -r TOKEN
     fi
     [ -n "$TOKEN" ] || die 'a node join token is required; rerun with --token <token>'
+fi
+
+if [ -z "$NODE_DOMAIN" ] && [ -t 0 ]; then
+    printf '  Node domain for AnyTLS [skip]: '
+    read -r NODE_DOMAIN
+fi
+if [ -n "$NODE_DOMAIN" ] && [ -z "$CF_TOKEN" ] && [ -t 0 ]; then
+    printf '  Cloudflare DNS-01 token [skip]: '
+    read -r CF_TOKEN
 fi
 
 say "fetching $NODE_REPO@$NODE_REF installer"
