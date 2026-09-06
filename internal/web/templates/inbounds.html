@@ -213,7 +213,15 @@ onRelay();
         <td>{{if .Enabled}}<span class="pill ok">启用</span>
             {{else}}<span class="pill off">停用</span>{{end}}
             {{if .Enabled}}
-              {{if and $.StateKnown (index $.Live .ID)}}<span class="pill live">已生效</span>
+              {{/* A rejected configuration leaves the node running the previous
+                   one, and the node reports which *tags* it serves — not which
+                   settings. The tags are usually unchanged, so every row would
+                   read 已生效 while the port beside it is not the port being
+                   listened on. That is the one word an operator relies on, so
+                   it must not be said about a node running something else. */}}
+              {{if and $.StateKnown (index $.Live .ID)}}
+                {{if $.NodeError}}<span class="pill warn-pill">跑的是旧配置</span>
+                {{else}}<span class="pill live">已生效</span>{{end}}
               {{else if $.Settle}}<span class="pill off">确认中…</span>
               {{else if $.StateKnown}}<span class="pill bad">未生效</span>
               {{else}}<span class="pill off">节点离线</span>{{end}}

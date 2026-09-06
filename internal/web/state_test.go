@@ -116,3 +116,29 @@ func inboundPage(t *testing.T, ch NodeChannel) string {
 	srv.renderInbounds(w, r, node.ID, http.StatusOK)
 	return w.Body.String()
 }
+
+// A rejected configuration leaves the node running the previous one, and the
+// node reports which tags it serves — not which settings. The tags are usually
+// unchanged, so every row read 已生效 while the port beside it was not the port
+// being listened on. Verified against a real node: an inbound moved to an
+// occupied port kept serving its old one and the row still claimed 已生效.
+func TestRejectedConfigDoesNotClaimRowsAreLive(t *testing.T) {
+	// The node is serving the tag, and has also reported why it did not adopt
+	// what it was last sent. Both are true at once, and that is the whole case.
+	body := inboundPage(t, &fakeChannel{
+		connected: true, known: true,
+		tags:     map[string]bool{"ss-tokyo": true},
+		applyErr: "listen tcp 0.0.0.0:18080: bind: address already in use",
+	})
+	if strings.Contains(body, "已生效") {
+		t.Error("a row claimed 已生效 while the node is running an older configuration")
+	}
+	if !strings.Contains(body, "跑的是旧配置") {
+		t.Error("the row does not say the node is running something else")
+	}
+	// The reason still has to be on the page; the pill replaces the claim, not
+	// the explanation.
+	if !strings.Contains(body, "address already in use") {
+		t.Error("the node's reason vanished")
+	}
+}
