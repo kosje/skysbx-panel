@@ -10,20 +10,25 @@ import (
 var ErrNotFound = errors.New("not found")
 
 const userCols = `id, name, vless_uuid, password, ss_password, sub_token,
-	enabled, expires_at, traffic_limit, traffic_used, ip_limit, note, created_at`
+	enabled, expires_at, traffic_limit, traffic_used, ip_limit,
+	reset_day, last_reset_at, note, created_at`
 
 func scanUser(sc interface{ Scan(...any) error }) (*User, error) {
 	var u User
-	var expires sql.NullInt64
+	var expires, lastReset sql.NullInt64
 	var created int64
 	if err := sc.Scan(&u.ID, &u.Name, &u.VlessUUID, &u.Password, &u.SSPassword,
 		&u.SubToken, &u.Enabled, &expires, &u.TrafficLimit, &u.TrafficUsed,
-		&u.IPLimit, &u.Note, &created); err != nil {
+		&u.IPLimit, &u.ResetDay, &lastReset, &u.Note, &created); err != nil {
 		return nil, err
 	}
 	if expires.Valid {
 		t := time.Unix(expires.Int64, 0).UTC()
 		u.ExpiresAt = &t
+	}
+	if lastReset.Valid {
+		t := time.Unix(lastReset.Int64, 0).UTC()
+		u.LastResetAt = &t
 	}
 	u.CreatedAt = time.Unix(created, 0).UTC()
 	return &u, nil
@@ -34,12 +39,16 @@ func (s *Store) CreateUser(u *User) error {
 	if u.ExpiresAt != nil {
 		expires = u.ExpiresAt.Unix()
 	}
+	// last_reset_at starts at the creation time, so someone signed up on the
+	// 20th with a reset day of the 21st is not reset the very next morning for
+	// a month they never had.
 	res, err := s.db.Exec(`INSERT INTO users
 		(name, vless_uuid, password, ss_password, sub_token, enabled,
-		 expires_at, traffic_limit, traffic_used, ip_limit, note, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, unixepoch())`,
+		 expires_at, traffic_limit, traffic_used, ip_limit,
+		 reset_day, last_reset_at, note, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, unixepoch(), ?, unixepoch())`,
 		u.Name, u.VlessUUID, u.Password, u.SSPassword, u.SubToken, u.Enabled,
-		expires, u.TrafficLimit, u.IPLimit, u.Note)
+		expires, u.TrafficLimit, u.IPLimit, u.ResetDay, u.Note)
 	if err != nil {
 		return asConflict(fmt.Errorf("create user %q: %w", u.Name, err))
 	}
@@ -89,12 +98,16 @@ func (s *Store) UpdateUser(u *User) error {
 	if u.ExpiresAt != nil {
 		expires = u.ExpiresAt.Unix()
 	}
+	// last_reset_at is not written here for the same reason traffic_used is
+	// not: the form carries whatever was read when it was opened, and writing
+	// that back would move the schedule by however long the form was left open.
 	res, err := s.db.Exec(`UPDATE users SET
 		name = ?, vless_uuid = ?, password = ?, ss_password = ?,
-		enabled = ?, expires_at = ?, traffic_limit = ?, ip_limit = ?, note = ?
+		enabled = ?, expires_at = ?, traffic_limit = ?, ip_limit = ?,
+		reset_day = ?, note = ?
 		WHERE id = ?`,
 		u.Name, u.VlessUUID, u.Password, u.SSPassword,
-		u.Enabled, expires, u.TrafficLimit, u.IPLimit, u.Note, u.ID)
+		u.Enabled, expires, u.TrafficLimit, u.IPLimit, u.ResetDay, u.Note, u.ID)
 	if err != nil {
 		return asConflict(fmt.Errorf("update user %d: %w", u.ID, err))
 	}
@@ -115,8 +128,14 @@ func (s *Store) DeleteUser(id int64) error {
 	return nil
 }
 
+// ResetUserTraffic zeroes the counter and stamps the schedule.
+//
+// The stamp goes on a manual reset too: an operator who has just zeroed someone
+// by hand does not want the scheduler doing it again an hour later, and the
+// stamp is what says "this cycle is already done".
 func (s *Store) ResetUserTraffic(id int64) error {
-	_, err := s.db.Exec(`UPDATE users SET traffic_used = 0 WHERE id = ?`, id)
+	_, err := s.db.Exec(
+		`UPDATE users SET traffic_used = 0, last_reset_at = unixepoch() WHERE id = ?`, id)
 	return err
 }
 

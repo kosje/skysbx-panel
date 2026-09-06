@@ -35,6 +35,17 @@ type User struct {
 	// place that sees a connection as it is made.
 	IPLimit int
 
+	// ResetDay is the day of the month TrafficUsed goes back to zero, for a
+	// monthly allowance rather than a lifetime one. Zero is never. A day past
+	// the end of a short month clamps to that month's last day, so 31 means
+	// "the last day of every month" and February is not skipped.
+	ResetDay int
+	// LastResetAt is when the counter was last zeroed, by the schedule or by
+	// hand. The schedule compares against this rather than against a stored
+	// "next due", so a panel that was off across a reset day catches up on its
+	// next start instead of losing the month.
+	LastResetAt *time.Time
+
 	Note      string
 	CreatedAt time.Time
 }

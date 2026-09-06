@@ -168,6 +168,52 @@ if [ -z "$EMAIL" ] && [ -t 0 ]; then
     read -r EMAIL
 fi
 
+# The administrator is set before the panel ever listens.
+#
+# Until one exists, /setup belongs to whoever reaches it first — and between
+# the moment this script starts the service and the moment a human opens a
+# browser, that is a race against everyone who can reach the domain. Asking
+# here turns a window into no window.
+#
+# Only on a first install: an upgrade already has an administrator, and
+# prompting for one would either be ignored or would silently replace it.
+NEED_ADMIN=no
+if [ "$ACTION" = install ] && [ ! -f "$ROOT/skysbx.db" ]; then
+    NEED_ADMIN=yes
+    while [ -z "$ADMIN_USER" ]; do
+        printf '  Administrator username [admin]: '
+        read -r ADMIN_USER
+        ADMIN_USER=${ADMIN_USER:-admin}
+    done
+    while :; do
+        # -s so it is not echoed, and never as an argument to anything: an
+        # argument is in the process list while it runs and in the shell's
+        # history afterwards.
+        printf '  Administrator password (at least 12 characters): '
+        stty -echo 2>/dev/null || true
+        read -r ADMIN_PASS
+        stty echo 2>/dev/null || true
+        printf '\n'
+        if [ "${#ADMIN_PASS}" -lt 12 ]; then
+            warn "too short — at least 12 characters"
+            ADMIN_PASS=""
+            continue
+        fi
+        printf '  Repeat it: '
+        stty -echo 2>/dev/null || true
+        read -r ADMIN_PASS2
+        stty echo 2>/dev/null || true
+        printf '\n'
+        if [ "$ADMIN_PASS" != "$ADMIN_PASS2" ]; then
+            warn "they do not match"
+            ADMIN_PASS=""
+            continue
+        fi
+        ADMIN_PASS2=""
+        break
+    done
+fi
+
 command -v curl >/dev/null || { apt-get update -qq && apt-get install -y -qq curl; }
 for p in git dig; do
     command -v "$p" >/dev/null || apt-get install -y -qq git dnsutils
@@ -252,6 +298,18 @@ docker run --rm -v "$BUILD/skysbx-panel:/src" -w /src \
 install -m 0755 "$BUILD/skysbx-panel/skysbx-panel" "$ROOT/skysbx-panel"
 ok "panel binary installed"
 
+# Before the service starts, so there is never a moment where the panel is
+# reachable without an administrator. The password goes in on stdin — printf is
+# a shell builtin, so it never becomes a process with the password in its argv.
+if [ "$NEED_ADMIN" = yes ]; then
+    say "administrator"
+    printf '%s' "$ADMIN_PASS" | "$ROOT/skysbx-panel" \
+        -db "$ROOT/skysbx.db" -set-admin "$ADMIN_USER" >/dev/null \
+        || die "could not set the administrator"
+    ADMIN_PASS=""
+    ok "administrator $ADMIN_USER is set"
+fi
+
 # ─────────────────────────────── service ──────────────────────────────────
 
 say "service"
@@ -304,15 +362,23 @@ for _ in $(seq 1 60); do
     printf '.'; sleep 3
 done
 
+if [ "$NEED_ADMIN" = yes ]; then
+    LOGIN_LINE="Sign in  https://${DOMAIN}/login   as ${ADMIN_USER}"
+    NEXT_LINE="Next: sign in, then add a node and copy its join token."
+else
+    LOGIN_LINE="Sign in  https://${DOMAIN}/login"
+    NEXT_LINE="Next: sign in. Forgot the password? ${ROOT}/skysbx-panel -db ${ROOT}/skysbx.db -set-admin <user>"
+fi
+
 cat <<EOF
 
 ${GRN}skysbx panel
 ===========
 Panel     https://${DOMAIN}
-Setup     https://${DOMAIN}/setup   ← create the administrator here
+${LOGIN_LINE}
 Data      ${ROOT}/skysbx.db          ← the whole of the panel's state
 
 Logs      journalctl -u skysbx-panel -f
 
-Next: open the setup page, then add a node and copy its join token.${RST}
+${NEXT_LINE}${RST}
 EOF

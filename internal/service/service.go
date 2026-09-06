@@ -73,6 +73,7 @@ type NewUser struct {
 	ExpiresAt    *time.Time
 	TrafficLimit int64
 	IPLimit      int
+	ResetDay     int
 }
 
 func (s *Service) CreateUser(nu NewUser) (*store.User, error) {
@@ -94,6 +95,7 @@ func (s *Service) CreateUser(nu NewUser) (*store.User, error) {
 		ExpiresAt:    nu.ExpiresAt,
 		TrafficLimit: nu.TrafficLimit,
 		IPLimit:      nu.IPLimit,
+		ResetDay:     ClampResetDay(nu.ResetDay),
 		Note:         nu.Note,
 	}
 	if err := s.st.CreateUser(u); err != nil {
@@ -118,6 +120,7 @@ func (s *Service) UpdateUser(u *store.User) error {
 	if u.TrafficLimit < 0 {
 		return invalid("traffic limit cannot be negative")
 	}
+	u.ResetDay = ClampResetDay(u.ResetDay)
 	if u.IPLimit < 0 {
 		return invalid("address limit cannot be negative")
 	}

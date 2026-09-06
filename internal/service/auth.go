@@ -42,21 +42,11 @@ func CheckSecret(hash, secret string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(secret)) == nil
 }
 
-// SetAdmin stores the single administrator's credentials.
+// SetAdmin stores the single administrator's credentials, replacing whatever
+// was there. Reachable only from the command line, which means root on the
+// panel host — so it doubles as the way to recover a forgotten password.
 func (s *Service) SetAdmin(username, password string) error {
-	username = strings.TrimSpace(username)
-	if username == "" {
-		return invalid("username is required")
-	}
-	if len(password) < 12 {
-		return invalid("password must be at least 12 characters")
-	}
-	if len(password) > 72 {
-		// bcrypt would truncate silently, so anything past its limit would not
-		// actually be checked. Refuse rather than pretend.
-		return invalid("password must be at most 72 characters")
-	}
-	hash, err := HashSecret(password)
+	username, hash, err := checkAdminCredentials(username, password)
 	if err != nil {
 		return err
 	}
@@ -64,6 +54,43 @@ func (s *Service) SetAdmin(username, password string) error {
 		return err
 	}
 	return s.st.SetSetting(settingAdminHash, hash)
+}
+
+// CreateAdmin claims the administrator if there is not one already, and reports
+// whether it did.
+//
+// This is what /setup calls. Checking first and then writing would leave a
+// window in which two requests both pass the check and the second one wins, so
+// the check happens inside the write.
+func (s *Service) CreateAdmin(username, password string) (bool, error) {
+	username, hash, err := checkAdminCredentials(username, password)
+	if err != nil {
+		return false, err
+	}
+	return s.st.SetSettingsIfAbsent(settingAdminHash, map[string]string{
+		settingAdminUser: username,
+		settingAdminHash: hash,
+	})
+}
+
+func checkAdminCredentials(username, password string) (string, string, error) {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return "", "", invalid("username is required")
+	}
+	if len(password) < 12 {
+		return "", "", invalid("password must be at least 12 characters")
+	}
+	if len(password) > 72 {
+		// bcrypt would truncate silently, so anything past its limit would not
+		// actually be checked. Refuse rather than pretend.
+		return "", "", invalid("password must be at most 72 characters")
+	}
+	hash, err := HashSecret(password)
+	if err != nil {
+		return "", "", err
+	}
+	return username, hash, nil
 }
 
 // AdminExists reports whether the first-run setup has happened.

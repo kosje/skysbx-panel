@@ -139,3 +139,56 @@ func TestLoginIsRateLimited(t *testing.T) {
 		t.Error("one address being throttled locked out another")
 	}
 }
+
+// The reset-day select has to render on both the create form and the edit row,
+// with the user's current day preselected — a template that silently rendered
+// "不重置" would turn every save into an unnoticed cancellation of the schedule.
+func TestResetDaySelectRenders(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	svc := service.New(st)
+	if err := svc.SetAdmin("admin", "correct-horse-battery"); err != nil {
+		t.Fatal(err)
+	}
+	u, err := svc.CreateUser(service.NewUser{Name: "alice", ResetDay: 15,
+		TrafficLimit: 50 << 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := New(svc, &fakeChannel{}, slog.New(slog.NewTextHandler(io.Discard, nil)), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The create form: every option present, "不重置" preselected.
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/users", nil)
+	srv.renderUsers(rec, r, http.StatusOK)
+	body := rec.Body.String()
+	for _, want := range []string{
+		`name="reset_day"`, `value="created"`, "按创建日",
+		`value="15"`, "每月最后一天", "每月 29 号（短月顺延到月底）",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the users page is missing %q", want)
+		}
+	}
+	// And the list shows when the counter next goes to zero, beside the limit.
+	if !strings.Contains(body, "重置") {
+		t.Error("the list does not say when the allowance resets")
+	}
+
+	// The edit row: the user's own day is the selected option.
+	rec = httptest.NewRecorder()
+	r = httptest.NewRequest(http.MethodGet, "/users/1/edit", nil)
+	r.SetPathValue("id", "1")
+	srv.editUser(rec, r)
+	body = rec.Body.String()
+	if !strings.Contains(body, `<option value="15" selected>`) {
+		t.Errorf("the edit form does not preselect day %d: %s", u.ResetDay, body)
+	}
+}

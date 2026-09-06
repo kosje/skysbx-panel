@@ -94,6 +94,28 @@ func ipLimitFromForm(r *http.Request) (int, error) {
 	return n, nil
 }
 
+// resetDayFromForm reads the monthly reset day.
+//
+// "created" means the day of the month this account was made, resolved here so
+// that what gets stored is a plain day — the edit form then shows the real
+// number rather than an indirection the operator has to remember the meaning of.
+// created is the zero time when the user does not exist yet, in which case
+// today is the creation day.
+func resetDayFromForm(r *http.Request, created time.Time) int {
+	v := strings.TrimSpace(r.FormValue("reset_day"))
+	if v == "created" {
+		if created.IsZero() {
+			return time.Now().Day()
+		}
+		return created.In(time.Local).Day()
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0
+	}
+	return service.ClampResetDay(n)
+}
+
 // limitFromForm reads the traffic field, in GiB. Blank and zero both mean no
 // limit, which is how the rest of the panel reads a zero.
 func limitFromForm(r *http.Request) (int64, error) {
@@ -134,6 +156,7 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	nu.IPLimit = ipLimit
+	nu.ResetDay = resetDayFromForm(r, time.Time{})
 
 	if _, err := s.svc.CreateUser(nu); err != nil {
 		s.fail(w, r, err)
@@ -196,6 +219,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 	u.ExpiresAt = expires
 	u.TrafficLimit = limit
 	u.IPLimit = ipLimit
+	u.ResetDay = resetDayFromForm(r, u.CreatedAt)
 
 	if err := s.svc.UpdateUser(u); err != nil {
 		s.fail(w, r, err)

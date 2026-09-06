@@ -134,3 +134,35 @@ func (s *Store) SetSetting(key, value string) error {
 		key, value)
 	return err
 }
+
+// SetSettingsIfAbsent writes several settings together, but only if the key
+// named by guard has no value yet. It reports whether it wrote.
+//
+// This is how first-run setup claims the administrator. Reading "does an admin
+// exist" and then writing one are two statements, and between them a second
+// request can pass the same check — so the check has to be part of the write.
+// One transaction, so the username and the password hash cannot land separately
+// either.
+func (s *Store) SetSettingsIfAbsent(guard string, kv map[string]string) (bool, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	var existing string
+	err = tx.QueryRow(`SELECT v FROM settings WHERE k = ?`, guard).Scan(&existing)
+	if err != nil && err != sql.ErrNoRows {
+		return false, err
+	}
+	if existing != "" {
+		return false, nil
+	}
+	for k, v := range kv {
+		if _, err := tx.Exec(`INSERT INTO settings (k, v) VALUES (?, ?)
+			ON CONFLICT(k) DO UPDATE SET v = excluded.v`, k, v); err != nil {
+			return false, err
+		}
+	}
+	return true, tx.Commit()
+}

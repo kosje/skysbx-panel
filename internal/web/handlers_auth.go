@@ -43,8 +43,16 @@ func (s *Server) postSetup(w http.ResponseWriter, r *http.Request) {
 		s.errorBanner(w, http.StatusBadRequest, "the two passwords do not match")
 		return
 	}
-	if err := s.svc.SetAdmin(username, password); err != nil {
+	// Claimed inside the write, not checked beforehand: two requests arriving
+	// together would otherwise both pass the check above and the later one would
+	// take the account.
+	created, err := s.svc.CreateAdmin(username, password)
+	if err != nil {
 		s.fail(w, r, err)
+		return
+	}
+	if !created {
+		s.redirect(w, r, "/login")
 		return
 	}
 	s.sess.issue(w, username, s.secureCookies)

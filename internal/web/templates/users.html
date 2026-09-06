@@ -12,13 +12,38 @@
              placeholder="留空 = 不限"></label>
       <label>同时在线 IP<input name="ip_limit" type="number" step="1" min="0"
              placeholder="留空 = 不限" style="min-width:7rem"></label>
+      {{/* A monthly allowance rather than a lifetime one. Stored as a plain day
+           of the month; 「按创建日」 is resolved when the form is saved, so the
+           edit form afterwards shows the real number instead of an indirection
+           whose meaning has to be remembered. */}}
+      <label>流量重置
+        <select name="reset_day" style="min-width:9rem">
+          {{template "reset-day-options" 0}}
+        </select></label>
       <label>备注<input name="note" placeholder="可选"></label>
       <button>新建</button>
     </form>
+    <p class="dim" style="margin:.8rem 0 0;font-size:.85rem">
+      <strong>流量重置</strong>是月付套餐用的：到了那一天已用流量归零，不用每个月手动清。
+      选「每月最后一天」或 29–31 号时，短月会自动落到该月最后一天，二月不会被跳过。
+      重置只清计数器，概览页的历史曲线和按节点的流量账不受影响。
+    </p>
   </div>
   {{template "user-table" .}}
 </main>
 {{template "foot" .}}
+{{end}}
+
+{{/* The day-of-month choices, shared by the create form and the edit row so the
+     two cannot drift. The argument is the currently selected day. 31 is offered
+     as 「每月最后一天」 because that is what it does — short months clamp. */}}
+{{define "reset-day-options"}}
+  <option value="0" {{if eq . 0}}selected{{end}}>不重置</option>
+  <option value="created">按创建日</option>
+  {{range $d := days28}}<option value="{{$d}}" {{if eq $d $}}selected{{end}}>每月 {{$d}} 号</option>{{end}}
+  <option value="29" {{if eq . 29}}selected{{end}}>每月 29 号（短月顺延到月底）</option>
+  <option value="30" {{if eq . 30}}selected{{end}}>每月 30 号（短月顺延到月底）</option>
+  <option value="31" {{if eq . 31}}selected{{end}}>每月最后一天</option>
 {{end}}
 
 {{/* One row turned into a form over the same fields. Saving re-renders the
@@ -39,6 +64,10 @@
       <label>同时在线 IP<input name="ip_limit" type="number" step="1" min="0"
              placeholder="留空 = 不限" style="min-width:7rem"
              value="{{if gt .User.IPLimit 0}}{{.User.IPLimit}}{{end}}"></label>
+      <label>流量重置
+        <select name="reset_day" style="min-width:9rem">
+          {{template "reset-day-options" .User.ResetDay}}
+        </select></label>
       <label>备注<input name="note" value="{{.User.Note}}"></label>
       <button>保存</button>
       <button type="button" class="ghost" hx-get="/users"
@@ -108,6 +137,13 @@
           {{if gt .TrafficLimit 0}}{{bytes .TrafficLimit}}
             <div style="font-size:.75rem">{{pct .TrafficUsed .TrafficLimit}}</div>
           {{else}}不限{{end}}
+          {{/* When the counter next goes to zero. Worth showing next to the
+               limit rather than in a column of its own: "3.4 / 50 GiB" means
+               something quite different depending on whether it resets on
+               Tuesday. */}}
+          {{if gt .ResetDay 0}}
+            <div class="dim" style="font-size:.7rem">{{nextreset .ResetDay}} 重置</div>
+          {{end}}
         </td>
         <td style="text-align:right;white-space:nowrap">
           <button class="ghost" hx-get="/users/{{.ID}}/edit"

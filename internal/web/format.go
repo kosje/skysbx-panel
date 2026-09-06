@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/kosje/skysbx-panel/internal/service"
 )
 
 func templateFuncs() template.FuncMap {
@@ -23,7 +25,29 @@ func templateFuncs() template.FuncMap {
 
 		"hour": func(t time.Time) string { return t.Format("01-02 15:04") },
 		"div":  func(a, b int) int { return a / b },
+
+		// The reset-day select. days28 is 1..28 because 29-31 are listed
+		// separately with the note that short months clamp — a plain "每月 31
+		// 号" would be a promise February cannot keep.
+		"days28":    func() []int { return daysTo28 },
+		"nextreset": nextResetLabel,
 	}
+}
+
+var daysTo28 = func() []int {
+	d := make([]int, 28)
+	for i := range d {
+		d[i] = i + 1
+	}
+	return d
+}()
+
+// nextResetLabel is when this user's counter next goes to zero.
+func nextResetLabel(day int) string {
+	if day < 1 {
+		return ""
+	}
+	return service.NextScheduledReset(day, nowFunc()).Format("01-02")
 }
 
 // dateValue fills a <input type=date>, whose only accepted format is this one.

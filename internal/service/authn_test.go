@@ -2,7 +2,10 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -159,5 +162,91 @@ func TestSlowPathIsRefusedWhenThrottled(t *testing.T) {
 	// throttled should back off, not conclude its credential is wrong.
 	if errors.Is(err, ErrBadCredentials) {
 		t.Error("throttling is indistinguishable from a bad token")
+	}
+}
+
+// /setup is a race until an administrator exists: two requests arriving
+// together would both pass a "does one exist" check, and the later one would
+// take the account. The claim has to happen inside the write.
+func TestOnlyOneRequestCanClaimTheAdministrator(t *testing.T) {
+	svc := authFixture(t)
+
+	created, err := svc.CreateAdmin("first", "correct-horse-battery")
+	if err != nil || !created {
+		t.Fatalf("the first claim failed: %v %v", created, err)
+	}
+	created, err = svc.CreateAdmin("second", "another-long-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created {
+		t.Error("a second request replaced the administrator")
+	}
+	if err := svc.CheckAdmin("second", "another-long-password"); err == nil {
+		t.Error("the second request's credentials work")
+	}
+	if err := svc.CheckAdmin("first", "correct-horse-battery"); err != nil {
+		t.Errorf("the first administrator was displaced: %v", err)
+	}
+}
+
+// Concurrently, which is the case the transaction exists for.
+func TestConcurrentSetupClaimsExactlyOnce(t *testing.T) {
+	svc := authFixture(t)
+
+	const racers = 8
+	var wg sync.WaitGroup
+	won := make([]bool, racers)
+	start := make(chan struct{})
+	for i := range racers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			ok, err := svc.CreateAdmin(fmt.Sprintf("admin%d", i), "correct-horse-battery")
+			if err != nil {
+				t.Errorf("racer %d: %v", i, err)
+			}
+			won[i] = ok
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	n := 0
+	for _, w := range won {
+		if w {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("%d of %d concurrent claims succeeded, want exactly 1", n, racers)
+	}
+}
+
+// SetAdmin is the command-line path, reachable only by root on the panel host.
+// It replaces unconditionally, which is what makes it a password recovery.
+func TestSetAdminReplaces(t *testing.T) {
+	svc := authFixture(t)
+	if _, err := svc.CreateAdmin("admin", "correct-horse-battery"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetAdmin("admin", "a-brand-new-password"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.CheckAdmin("admin", "a-brand-new-password"); err != nil {
+		t.Errorf("the replacement password does not work: %v", err)
+	}
+	if err := svc.CheckAdmin("admin", "correct-horse-battery"); err == nil {
+		t.Error("the old password still works")
+	}
+
+	// The length floor applies on both paths; bcrypt's 72-byte truncation is
+	// the reason for the ceiling.
+	if err := svc.SetAdmin("admin", "short"); err == nil {
+		t.Error("a five-character password was accepted")
+	}
+	if err := svc.SetAdmin("admin", strings.Repeat("x", 73)); err == nil {
+		t.Error("a password past bcrypt's limit was accepted; it would be truncated")
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -40,6 +41,9 @@ func main() {
 		acmeEmail = flag.String("acme-email", "",
 			"contact address for the certificate authority (recommended)")
 		showVersion = flag.Bool("version", false, "print the version and exit")
+		setAdmin    = flag.String("set-admin", "",
+			"create or replace the administrator with this username, reading the "+
+				"password from stdin, then exit")
 	)
 	flag.Parse()
 
@@ -59,6 +63,22 @@ func main() {
 	log.Info("database ready", "path", *dbPath)
 
 	svc := service.New(st)
+
+	// Seeding the administrator before the panel ever listens is what closes
+	// the first-run window: until one exists, /setup belongs to whoever reaches
+	// it first, and that is a race against the whole internet.
+	//
+	// The password comes in on stdin rather than as an argument, because an
+	// argument is in the process list for as long as the process runs and in
+	// the shell's history afterwards.
+	if *setAdmin != "" {
+		if err := seedAdmin(svc, *setAdmin); err != nil {
+			log.Error("set administrator", "error", err)
+			os.Exit(1)
+		}
+		fmt.Printf("administrator %q is set\n", *setAdmin)
+		return
+	}
 
 	// The hub holds the node control channel. Wiring it as the service's
 	// notifier is what turns an edit in the UI into a push to every node; without
@@ -163,6 +183,25 @@ func main() {
 		}
 	}()
 
+	// Monthly traffic allowances. Hourly rather than daily so that a reset day
+	// arrives within the hour rather than whenever this process happens to have
+	// started, and immediately at startup so a panel that was off across
+	// somebody's reset day catches up instead of losing the month.
+	go func() {
+		for {
+			if n, err := svc.RunDueResets(); err != nil {
+				log.Warn("scheduled traffic reset", "error", err)
+			} else if n > 0 {
+				log.Info("traffic reset", "users", n)
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Hour):
+			}
+		}
+	}()
+
 	go func() {
 		log.Info("listening", "addr", listenAddr, "tls", *domain != "",
 			"secure_cookies", secureCookies || *domain != "")
@@ -189,6 +228,23 @@ func main() {
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		log.Warn("shutdown", "error", err)
 	}
+}
+
+// seedAdmin reads a password from stdin and installs it.
+//
+// Whitespace at the end is stripped because the caller is a shell — `printf`
+// and `echo` differ on the trailing newline, and a password that silently
+// gains one is a password that never works again.
+func seedAdmin(svc *service.Service, username string) error {
+	raw, err := io.ReadAll(io.LimitReader(os.Stdin, 4096))
+	if err != nil {
+		return fmt.Errorf("read password from stdin: %w", err)
+	}
+	password := strings.TrimRight(string(raw), "\r\n")
+	if password == "" {
+		return errors.New("no password on stdin")
+	}
+	return svc.SetAdmin(username, password)
 }
 
 func newLogger(level string) *slog.Logger {
