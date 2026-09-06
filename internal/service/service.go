@@ -216,8 +216,8 @@ func (s *Service) CreateNode(name, address, country string) (*store.Node, string
 	if err != nil {
 		return nil, "", err
 	}
-	n := &store.Node{Name: name, TokenHash: hash, Address: address,
-		Country: country, Enabled: true}
+	n := &store.Node{Name: name, TokenHash: hash, TokenSHA: TokenSHA(token),
+		Address: address, Country: country, Enabled: true}
 	if err := s.st.CreateNode(n); err != nil {
 		return nil, "", err
 	}
@@ -280,7 +280,7 @@ func (s *Service) RotateNodeToken(id int64) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := s.st.RotateNodeToken(id, hash); err != nil {
+	if err := s.st.RotateNodeToken(id, hash, TokenSHA(token)); err != nil {
 		return "", err
 	}
 	return token, nil

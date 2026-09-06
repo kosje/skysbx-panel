@@ -14,6 +14,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/kosje/skysbx-panel/internal/ratelimit"
 	"github.com/kosje/skysbx-panel/internal/service"
 )
 
@@ -45,6 +46,12 @@ type Hub struct {
 	pendUsers  bool
 	pendConfig map[int64]bool
 	pendTimer  *time.Timer
+
+	// Guards the pre-index authentication path, which is the only expensive
+	// thing this unauthenticated endpoint can be made to do. Three attempts,
+	// then one a minute: a node upgrading from a token minted before the index
+	// needs exactly one, and nobody needs a fourth.
+	slowAuth *ratelimit.Limiter
 }
 
 func New(svc *service.Service, log *slog.Logger) *Hub {
@@ -53,6 +60,7 @@ func New(svc *service.Service, log *slog.Logger) *Hub {
 		log:        log,
 		conns:      map[int64]*conn{},
 		pendConfig: map[int64]bool{},
+		slowAuth:   ratelimit.New(3, time.Minute),
 	}
 }
 
@@ -80,7 +88,19 @@ func (h *Hub) Handler() http.HandlerFunc {
 			http.Error(w, "missing bearer token", http.StatusUnauthorized)
 			return
 		}
-		nodeID, err := h.svc.AuthenticateNode(token)
+		// The callback is consulted only if authentication is about to fall back
+		// to scanning bcrypt hashes — the path that predates the token index and
+		// costs one bcrypt per node. That path is reachable without any
+		// credential, so it is throttled per address. A real node takes it at
+		// most once, on its first handshake after the upgrade, and never again.
+		nodeID, err := h.svc.AuthenticateNode(token, func() bool {
+			return h.slowAuth.Allow(ratelimit.ClientIP(r), time.Now())
+		})
+		if errors.Is(err, service.ErrTooManyAttempts) {
+			h.log.Warn("node authentication rate limited", "remote", r.RemoteAddr)
+			http.Error(w, "too many attempts", http.StatusTooManyRequests)
+			return
+		}
 		if err != nil {
 			h.log.Warn("node authentication failed", "remote", r.RemoteAddr)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)

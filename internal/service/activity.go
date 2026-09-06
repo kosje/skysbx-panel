@@ -30,13 +30,13 @@ func (s *Service) RecordActivity(nodeID int64, byName map[string]Activity) error
 	if len(byName) == 0 {
 		return nil
 	}
-	users, err := s.st.Users()
+	// Scoped to the users this node actually serves, for the same reason
+	// RecordTraffic is: otherwise any node can write to any account's record,
+	// and a record used to decide whether to ban someone is worth rather more
+	// than a node's word for it.
+	ids, err := s.nodeUserIDs(nodeID)
 	if err != nil {
 		return err
-	}
-	ids := make(map[string]int64, len(users))
-	for _, u := range users {
-		ids[u.Name] = u.ID
 	}
 
 	samples := make([]store.ActivitySample, 0, len(byName))

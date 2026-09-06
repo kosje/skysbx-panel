@@ -102,14 +102,21 @@ func (s *Server) subscriptionPage(w http.ResponseWriter, r *http.Request,
 }
 
 // subURL reconstructs the absolute URL this subscription was fetched from, so
-// the page can offer it for copying. X-Forwarded-Proto is honoured because the
-// panel may sit behind a proxy that terminated TLS.
+// the page can offer it for copying.
+//
+// X-Forwarded-Proto is honoured because the panel may sit behind a proxy that
+// terminated TLS — but only when it says one of the two things it is allowed to
+// say. It is a request header, so the client picks its value, and putting an
+// arbitrary one in front of "://" builds whatever scheme the client asked for.
 func subURL(r *http.Request) string {
 	scheme := "https"
-	if p := r.Header.Get("X-Forwarded-Proto"); p != "" {
+	switch p := r.Header.Get("X-Forwarded-Proto"); p {
+	case "http", "https":
 		scheme = p
-	} else if r.TLS == nil {
-		scheme = "http"
+	default:
+		if r.TLS == nil {
+			scheme = "http"
+		}
 	}
 	return scheme + "://" + r.Host + r.URL.Path
 }

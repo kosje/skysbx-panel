@@ -56,9 +56,19 @@ func (u *User) Active(now time.Time) bool {
 }
 
 type Node struct {
-	ID        int64
-	Name      string
+	ID   int64
+	Name string
+
+	// TokenHash is bcrypt of the join token, kept for nodes created before
+	// TokenSHA existed. TokenSHA is SHA-256 of the same token, hex, and is what
+	// authentication actually looks up — a join token is 32 random bytes, so
+	// there is nothing for bcrypt's slowness to defend against, and a linear
+	// scan of bcrypt hashes is a denial of service waiting to be found.
+	//
+	// TokenSHA is empty only for a node whose token was minted before the
+	// column existed; it fills itself in on that node's next handshake.
 	TokenHash string
+	TokenSHA  string
 	// Address is what clients connect to — a domain, or a bare IP for Reality
 	// and Shadowsocks. It is not how the panel reaches the node: nodes dial the
 	// panel, so the panel never needs a route to them.

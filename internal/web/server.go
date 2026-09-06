@@ -18,7 +18,9 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/kosje/skysbx-panel/internal/ratelimit"
 	"github.com/kosje/skysbx-panel/internal/service"
 	"github.com/kosje/skysbx-panel/internal/store"
 )
@@ -34,6 +36,11 @@ type Server struct {
 	tpl   *template.Template
 	sess  *sessions
 	nodes NodeChannel
+
+	// Guards the password check. Ten tries back to back, then one every five
+	// seconds — no obstacle to someone who knows the password and mistyped it,
+	// and it turns an unbounded guessing rate into roughly twelve an hour.
+	logins *ratelimit.Limiter
 
 	// secureCookies marks session cookies Secure. Off when serving plain HTTP
 	// on localhost, because a Secure cookie is simply dropped there and login
@@ -92,7 +99,8 @@ func New(svc *service.Service, nodes NodeChannel, log *slog.Logger, secureCookie
 		return nil, fmt.Errorf("a node channel is required")
 	}
 	return &Server{svc: svc, nodes: nodes, log: log, tpl: tpl,
-		sess: newSessions(key), secureCookies: secureCookies}, nil
+		sess: newSessions(key), secureCookies: secureCookies,
+		logins: ratelimit.New(10, 5*time.Second)}, nil
 }
 
 func (s *Server) Handler() http.Handler {
@@ -152,7 +160,58 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /inbounds/{id}/toggle", s.auth(http.HandlerFunc(s.toggleInbound)))
 	mux.Handle("DELETE /inbounds/{id}", s.auth(http.HandlerFunc(s.deleteInbound)))
 
-	return mux
+	return harden(mux)
+}
+
+// maxBody caps a request body. Every form here is a handful of short fields;
+// net/http's own 10 MB default for urlencoded bodies is three orders of
+// magnitude more than any of them need, and it is read into memory.
+const maxBody = 256 << 10
+
+// harden adds the response headers the browser needs in order to defend the
+// admin UI, and bounds request bodies.
+func harden(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+
+		// Every destructive action in this UI is a single button. Framing the
+		// panel and putting something else over those buttons is the cheapest
+		// attack there is against a logged-in administrator, and frame-ancestors
+		// is what refuses it. The rest of the policy is narrow because the page
+		// genuinely needs nothing else: one same-origin script, inline styles
+		// and handlers written into the templates, no images, no fonts, no
+		// XHR anywhere but here.
+		h.Set("Content-Security-Policy",
+			"default-src 'none'; script-src 'self' 'unsafe-inline'; "+
+				"style-src 'self' 'unsafe-inline'; img-src 'self' data:; "+
+				"connect-src 'self'; form-action 'self'; base-uri 'none'; "+
+				"frame-ancestors 'none'")
+		h.Set("X-Frame-Options", "DENY") // for anything that predates CSP level 2
+		h.Set("X-Content-Type-Options", "nosniff")
+		// The subscription token is in the path, so it is in the Referer of
+		// every link followed from the subscription page.
+		h.Set("Referrer-Policy", "no-referrer")
+
+		// Only over TLS, and only for a month. A year is the usual advice, but
+		// this is software someone runs on their own domain: a max-age they
+		// cannot revoke is a way to lose that hostname for plain HTTP long
+		// after they have stopped running the panel on it.
+		if r.TLS != nil {
+			h.Set("Strict-Transport-Security", "max-age=2592000")
+		}
+
+		// A subscription response is a bearer credential in a text file. It
+		// must not be written to any cache between here and the client.
+		if strings.HasPrefix(r.URL.Path, "/sub/") {
+			h.Set("Cache-Control", "no-store, private")
+		}
+
+		if r.Method == http.MethodPost || r.Method == http.MethodPut ||
+			r.Method == http.MethodPatch {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // auth gates a handler on a valid session. It also handles the first-run case:

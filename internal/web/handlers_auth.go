@@ -4,7 +4,9 @@ import (
 	"errors"
 	"net/http"
 	"sort"
+	"time"
 
+	"github.com/kosje/skysbx-panel/internal/ratelimit"
 	"github.com/kosje/skysbx-panel/internal/service"
 	"github.com/kosje/skysbx-panel/internal/store"
 )
@@ -67,6 +69,16 @@ func (s *Server) getLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
+	// Before the password check, not after: the check is a bcrypt, so an
+	// unthrottled one is both a guessing oracle and a way to spend the panel's
+	// CPU without holding any credential.
+	if !s.logins.Allow(ratelimit.ClientIP(r), time.Now()) {
+		s.log.Warn("login rate limited", "remote", r.RemoteAddr)
+		s.errorBanner(w, http.StatusTooManyRequests,
+			"太多次尝试，请稍候再试")
+		return
+	}
+
 	username := r.FormValue("username")
 	if err := s.svc.CheckAdmin(username, r.FormValue("password")); err != nil {
 		if errors.Is(err, service.ErrBadCredentials) {

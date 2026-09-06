@@ -100,15 +100,15 @@ func TestNodeTokenAuthenticates(t *testing.T) {
 		t.Fatal("token was stored in plaintext")
 	}
 
-	id, err := svc.AuthenticateNode(token)
+	id, err := svc.AuthenticateNode(token, nil)
 	if err != nil || id != n.ID {
 		t.Fatalf("authenticate: id=%d err=%v", id, err)
 	}
 
-	if _, err := svc.AuthenticateNode(token + "x"); !errors.Is(err, ErrBadCredentials) {
+	if _, err := svc.AuthenticateNode(token + "x", nil); !errors.Is(err, ErrBadCredentials) {
 		t.Fatalf("a wrong token should be rejected, got %v", err)
 	}
-	if _, err := svc.AuthenticateNode(""); !errors.Is(err, ErrBadCredentials) {
+	if _, err := svc.AuthenticateNode("", nil); !errors.Is(err, ErrBadCredentials) {
 		t.Fatal("an empty token should be rejected")
 	}
 }
@@ -126,7 +126,7 @@ func TestDisabledNodeCannotAuthenticate(t *testing.T) {
 	if err := svc.UpdateNode(n); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AuthenticateNode(token); !errors.Is(err, ErrBadCredentials) {
+	if _, err := svc.AuthenticateNode(token, nil); !errors.Is(err, ErrBadCredentials) {
 		t.Fatalf("disabled node authenticated: %v", err)
 	}
 }
@@ -145,10 +145,10 @@ func TestRotateNodeTokenInvalidatesOld(t *testing.T) {
 	if fresh == old {
 		t.Fatal("rotation produced the same token")
 	}
-	if _, err := svc.AuthenticateNode(old); !errors.Is(err, ErrBadCredentials) {
+	if _, err := svc.AuthenticateNode(old, nil); !errors.Is(err, ErrBadCredentials) {
 		t.Fatal("the old token still works after rotation")
 	}
-	if id, err := svc.AuthenticateNode(fresh); err != nil || id != n.ID {
+	if id, err := svc.AuthenticateNode(fresh, nil); err != nil || id != n.ID {
 		t.Fatalf("the new token does not work: %v", err)
 	}
 }
