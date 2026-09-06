@@ -135,9 +135,39 @@ NODE_INSTALL=$SRC/skysbx-node/install.sh
 
 set -- --panel "$PANEL_URL" --token "$TOKEN"
 
+# install-panel.sh leaves these Docker-mounted caches under $ROOT. The node is
+# a separate repository, so its installer cannot otherwise see the panel
+# build's Go module cache. Put a tiny docker shim first in PATH only while the
+# node installer runs; every `docker run` it makes mounts the same caches.
+# System packages and the Docker daemon are already installed by the panel
+# installer, while shared Go modules now come from the local cache as well.
+REAL_DOCKER=$(command -v docker)
+[ -n "$REAL_DOCKER" ] || die "docker disappeared after installing the panel"
+GO_MOD_CACHE=$ROOT/go-mod-cache
+GO_BUILD_CACHE=$ROOT/go-build-cache
+install -d -m 0700 "$GO_MOD_CACHE" "$GO_BUILD_CACHE"
+DOCKER_SHIM_DIR=$SRC/docker-shim
+mkdir -p "$DOCKER_SHIM_DIR"
+cat > "$DOCKER_SHIM_DIR/docker" <<'EOF'
+#!/bin/sh
+set -eu
+if [ "${1-}" = run ]; then
+    shift
+    exec "$SKYSBX_REAL_DOCKER" run \
+        -v "$SKYSBX_GO_MOD_CACHE:/go/pkg/mod" \
+        -v "$SKYSBX_GO_BUILD_CACHE:/root/.cache/go-build" "$@"
+fi
+exec "$SKYSBX_REAL_DOCKER" "$@"
+EOF
+chmod 700 "$DOCKER_SHIM_DIR/docker"
+
 # The two repositories intentionally use the same SKYSBX_REPO variable for
 # their standalone launchers.  Set it explicitly here so a custom panel source
 # cannot accidentally be cloned as the node source.
+PATH="$DOCKER_SHIM_DIR:$PATH" \
+SKYSBX_REAL_DOCKER=$REAL_DOCKER \
+SKYSBX_GO_MOD_CACHE=$GO_MOD_CACHE \
+SKYSBX_GO_BUILD_CACHE=$GO_BUILD_CACHE \
 SKYSBX_REPO=$NODE_REPO SKYSBX_REF=$NODE_REF sh "$NODE_INSTALL" "$@"
 
 printf '\n%sskysbx panel and node are installed on this host.%s\n' "$GRN" "$RST"
