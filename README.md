@@ -1,41 +1,48 @@
 # skysbx-panel
 
-代理面板的控制端：用户、节点、订阅、计费。
+代理面板的控制端：用户、节点、入站、订阅、计费、用量控制。
 
 节点端是独立的 [`skysbx-node`](https://github.com/kosje/skysbx-node)，两者通过一条
-WebSocket 通信。
-
-> **状态：M1–M6 已完成**（数据模型、节点协议、订阅、计费、界面、自动 TLS）。
-> 设计见 [`docs/DESIGN.md`](docs/DESIGN.md)。
-
-## 这个项目为什么存在
-
-前身是 Remnawave 的 fork 加一个派生自 `rwnode-gosingbox` 的节点。那条路上有两个
-问题：
-
-1. **`rwnode-gosingbox` 没有 LICENSE**，也就没有分发授权。节点因此被清白重写。
-2. **面板用 Xray 的格式描述 sing-box 的世界**，中间夹一层转译器。协议字段名对不上、
-   配置校验器不认识 sing-box 的协议、用户列表字段名不一致 —— 一整类 bug 都源于此。
-
-两端都自己写，这两个问题一起消失：面板直接存 sing-box 原生配置，节点不做翻译。
-
-## 许可
-
-本仓库 **AGPL-3.0**（见 [`LICENSE`](LICENSE)）。
-
-节点仓库是 **GPL-3.0** —— 它内嵌 sing-box，属于衍生作品，没有选择余地。面板不链接
-sing-box 的任何代码，所以许可可以自选。
-
-**这是一条架构约束，不是文档措辞：** `internal/singbox/` 里只放 JSON 结构体定义，
-**绝不 import sing-box 本体**。一旦 import，两个仓库的许可边界就没了。
-
-## 运维形态
+WebSocket 通信。设计见 [`docs/DESIGN.md`](docs/DESIGN.md)。
 
 ```
 一个二进制 + 一个 SQLite 文件
 ```
 
 TLS 由面板自己用 ACME 处理，不需要前置反向代理。备份就是拷一个文件。
+
+## 功能
+
+**协议** —— VLESS + Reality + XTLS-Vision、AnyTLS、Shadowsocks 2022。面板直接存
+sing-box 原生配置，不做格式转译。密钥、short id、SS 服务端 PSK 全部自动生成。三个里
+只有 AnyTLS 需要证书，所以没证书的节点照样跑另外两个。
+
+**用户** —— 到期时间、流量上限、同时在线 IP 上限、备注，全部可编辑。可以按用户指定
+能用哪些入站（不是把所有协议都发给所有人）。流量清零是单独的操作，编辑表单不会覆盖
+已用流量。
+
+**订阅** —— 一个链接，按客户端自动给 sing-box JSON / Clash YAML / base64 分享链接，
+浏览器打开则是一个带用量和一键导入的页面。客户端服务器列表里显示的别名是
+`节点 | 用户名 | 已用/总量 | 到期`。
+
+**节点** —— 节点主动外连面板，不需要开放控制端口，NAT 后面可用。接入 token 一次性
+显示、只存哈希、可随时更换。改节点名会自动同步该节点上所有入站的 tag。
+
+**生效确认** —— 新建或改动入站后，页面自己轮询到节点确认为止，四种状态：已生效 /
+确认中 / 未生效（附节点报回的原始错误）/ 节点离线。节点拒绝一份配置时会自动回滚到
+上一份，不会因为一个打错的端口让整台机器下线。
+
+**中转** —— 两种。**外部中转**填一个面板管不到的中转机地址（realm、nginx stream 之
+类）。**站内中转**选一台面板已经管着的节点，面板自动在它上面开一个 L4 转发口，订阅
+地址随之改变；中转机只搬字节，协议仍在落地节点终结，所以按用户计流量、IP 限制、活动
+记录全部不受影响。
+
+**用量控制** —— 每用户同时在线 IP 上限（在节点上执行，超出的地址直接断开，先连上的
+不受影响）；面板级路由策略：禁 BitTorrent、禁测速站、自定义域名黑名单。
+
+**监控** —— 概览页按节点分列流量和 14 天曲线；每个用户一个活动页，按小时记录连接数、
+对端数、端口数、来源地址数的峰值，保留 30 天。只记形状不记去处 —— 分辨滥用靠的是
+形状，而不是某个人访问了什么。
 
 ## 安装
 
@@ -65,13 +72,16 @@ cd skysbx-panel
 sudo ./deploy/install-panel.sh --domain panel.example.com --email you@example.com
 ```
 
-需要 `80` 和 `443` 空闲 —— 面板自己终止 TLS、自己应答 ACME 挑战，**没有反向代理要装、要配、要保持同步**。域名必须已解析到本机且未套 CDN(HTTP-01 挑战要直连)。
+需要 `80` 和 `443` 空闲 —— 面板自己终止 TLS、自己应答 ACME 挑战，**没有反向代理要装、
+要配、要保持同步**。域名必须已解析到本机且未套 CDN（HTTP-01 挑战要直连）。
 
 装完打开 `https://panel.example.com/setup` 建管理员。
 
+升级不需要停机以外的动作，数据库迁移在启动时自动跑。
+
 ### 节点
 
-在面板里 **Nodes → 新增**，复制那个只显示一次的接入 token，然后在新服务器上：
+在面板里 **节点 → 新增**，复制那个只显示一次的接入 token，然后在新服务器上：
 
 ```bash
 wget -qO- https://raw.githubusercontent.com/kosje/skysbx-node/main/install.sh | sh
@@ -89,17 +99,23 @@ wget -qO- $N | sh -s -- --uninstall    # 卸载服务，保留证书和 node.env
 wget -qO- $N | sh -s -- --purge        # 连证书、构建缓存、脚本装的 Docker 一起清掉
 ```
 
-**sing-box 核心怎么升级：** 节点是把 sing-box 编进自己二进制里的，所以 `--upgrade` 重新构建一次就是升级 —— 它会重新拉 [`skysbx-core`](https://github.com/kosje/skysbx-core) 再编。没有单独的核心版本要管。
+**sing-box 核心怎么升级：** 节点把 sing-box 编进自己二进制里，所以 `--upgrade` 重新
+构建一次就是升级 —— 它会重新拉 [`skysbx-core`](https://github.com/kosje/skysbx-core)
+再编。没有单独的核心版本要管，也没有第二个进程要重启。
 
-节点**主动连面板**，所以它不需要开放任何控制端口、不需要面板能路由到它，NAT 后面也能用。
+节点**主动连面板**，所以它不需要开放任何控制端口、不需要面板能路由到它，NAT 后面也
+能用。
 
-`--domain` 是可选的：只有 AnyTLS 需要证书，Reality 和 Shadowsocks 都不需要。给了域名脚本就用 certbot 签证书(`--cf-token` 可走 DNS-01)；不给就只跑另外两个协议。
+`--domain` 是可选的：只有 AnyTLS 需要证书。给了域名脚本就用 certbot 签
+（`--cf-token` 可走 DNS-01）；不给就只跑另外两个协议。
 
-> 节点域名必须是 **DNS-only(灰云)**。三个协议都不是 HTTP，套 CDN 会全部失效。
+> 节点域名必须是 **DNS-only（灰云）**。三个协议都不是 HTTP，套 CDN 会全部失效。
 
 ### 离线 / 自建镜像
 
-`--src`（面板或节点源码）和 `--fork`（打过补丁的 sing-box）可以指向本机已有的检出，完全不联网安装。仓库设为私有的话，`export GITHUB_TOKEN=...` 后再跑；token 走 per-command header，不会落到 `.git/config` 里。
+`--src`（面板或节点源码）和 `--fork`（打过补丁的 sing-box）可以指向本机已有的检出，
+完全不联网安装。仓库设为私有的话，`export GITHUB_TOKEN=...` 后再跑；token 走
+per-command header，不会落到 `.git/config` 里。
 
 一键脚本认这几个环境变量：`SKYSBX_REPO`、`SKYSBX_FORK`、`SKYSBX_REF`。
 
@@ -110,19 +126,28 @@ go test ./...
 go build ./cmd/panel
 ```
 
-需要 Go 1.27+。（节点那边锁 Go 1.26.x —— sing-box 的 `go:linkname` 在 1.27 下链接
-失败。面板不受这个限制，这也是许可边界带来的一点额外好处。）
-
-## 目录
+需要 Go 1.27+。节点那边锁 Go 1.26.x（sing-box 的 `go:linkname` 在 1.27 下链接失败），
+面板不受这个限制。
 
 ```
 cmd/panel/          入口
 internal/
-  store/            SQLite：schema、迁移、全部查询
-  service/          业务逻辑，不知道 HTTP 的存在   ← 换 UI 时的切换点
+  store/            SQLite：schema、迁移、全部查询   ← 上面没有任何地方写 SQL
+  service/          业务逻辑，不知道 HTTP 的存在     ← 换 UI 时的切换点
+  hub/              WebSocket 集线器
+  sub/              订阅生成
+  singbox/          sing-box 配置的 Go 结构体
   web/              htmx handler + 模板
-docs/DESIGN.md      数据模型、协议、订阅生成、里程碑
+docs/DESIGN.md      协议、数据模型、订阅、计费、中转、已知限制
 ```
 
-`service/` 刻意不感知 HTTP：以后若要把 htmx 换成 React SPA，只需在同一套 service
-上加一层 JSON API，数据模型、协议、订阅、计费都不用动。
+`service/` 刻意不感知 HTTP：以后若要把 htmx 换成 SPA，只需在同一套 service 上加一层
+JSON API，数据模型、协议、订阅、计费都不用动。
+
+面板生成 sing-box 配置，但 `internal/singbox/` 里只有 JSON 结构体定义，**不 import
+sing-box 本体**。代价是面板没法用 sing-box 的 schema 校验自己的输出 —— 真正的验证得
+拿真的 sing-box 跑一遍，那一步在部署验证里做。
+
+## 许可
+
+**AGPL-3.0**，见 [`LICENSE`](LICENSE)。节点仓库是 GPL-3.0。
