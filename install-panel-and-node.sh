@@ -146,11 +146,17 @@ fi
 say "fetching $NODE_REPO@$NODE_REF installer"
 git clone -q --branch "$NODE_REF" --depth 1 "$NODE_REPO" "$SRC/skysbx-node" \
     || die "cannot clone $NODE_REPO"
-NODE_INSTALL=$SRC/skysbx-node/install.sh
+# Call the real installer directly instead of the node repository's launcher.
+# Its launcher deliberately reattaches /dev/tty for standalone interactive
+# use. All required node values are already supplied here, and leaving that
+# tty attached can keep this combined command alive after it prints success.
+NODE_INSTALL=$SRC/skysbx-node/deploy/install-node.sh
 [ -f "$NODE_INSTALL" ] || die "node installer is missing from $NODE_REPO"
 
 if [ "$ACTION" = install ]; then
-    set -- --panel "$PANEL_URL" --token "$TOKEN"
+    set -- --panel "$PANEL_URL" --token "$TOKEN" --src "$SRC/skysbx-node"
+elif [ "$ACTION" = upgrade ]; then
+    set -- "--$ACTION" --src "$SRC/skysbx-node"
 else
     set -- "--$ACTION"
 fi
@@ -191,9 +197,9 @@ if [ "$ACTION" = install ] || [ "$ACTION" = upgrade ]; then
     SKYSBX_REAL_DOCKER=$REAL_DOCKER \
     SKYSBX_GO_MOD_CACHE=$GO_MOD_CACHE \
     SKYSBX_GO_BUILD_CACHE=$GO_BUILD_CACHE \
-    SKYSBX_REPO=$NODE_REPO SKYSBX_REF=$NODE_REF sh "$NODE_INSTALL" "$@"
+    SKYSBX_REPO=$NODE_REPO SKYSBX_REF=$NODE_REF bash "$NODE_INSTALL" "$@" </dev/null
 else
-    SKYSBX_REPO=$NODE_REPO SKYSBX_REF=$NODE_REF sh "$NODE_INSTALL" "$@"
+    SKYSBX_REPO=$NODE_REPO SKYSBX_REF=$NODE_REF bash "$NODE_INSTALL" "$@" </dev/null
 fi
 
 printf '\n%sskysbx panel and node are installed on this host.%s\n' "$GRN" "$RST"
