@@ -664,3 +664,73 @@ func TestRelayAddressCanCarryAPort(t *testing.T) {
 		}
 	}
 }
+
+// A relay run by a node the panel manages: clients dial that node's address on
+// the relay port, and the origin node never appears. Same client-facing result
+// as an external relay, generated from rows the panel already holds instead of
+// an address the operator typed.
+func TestInPanelRelayAdvertisesTheRelayNode(t *testing.T) {
+	u, nodes, inbounds := fixture(t)
+	relayNode := &store.Node{ID: 2, Name: "hongkong", Address: "hk.example.com",
+		Country: "HK", Enabled: true}
+	nodes = append(nodes, relayNode)
+
+	relayed := inbounds[1] // anytls, port 8443
+	relayed.RelayNodeID = relayNode.ID
+	relayed.RelayPort = 443
+
+	entries, err := Build(u, nodes, inbounds, nil)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("got %d entries, want 3", len(entries))
+	}
+	for _, e := range entries {
+		switch e.Name {
+		case relayed.Tag:
+			if e.Address != "hk.example.com" || e.Port != 443 {
+				t.Errorf("relayed entry points at %s:%d, want hk.example.com:443",
+					e.Address, e.Port)
+			}
+			// The credentials and TLS parameters still belong to the origin
+			// inbound: the relay terminates nothing, so nothing about the
+			// handshake changes.
+			if e.SNI != "jp.example.com" {
+				t.Errorf("SNI became %q; the relay is not terminating TLS", e.SNI)
+			}
+		default:
+			if e.Address != nodes[0].Address {
+				t.Errorf("%s advertises %q, want the node's own address",
+					e.Name, e.Address)
+			}
+		}
+	}
+}
+
+// A disabled relay node is not forwarding, so the entry is not connectable.
+// Falling back to the origin node's own address would hand every subscriber the
+// address the relay existed to hide, and do it silently.
+func TestInPanelRelayDropsTheEntryWhenTheRelayIsOff(t *testing.T) {
+	u, nodes, inbounds := fixture(t)
+	relayNode := &store.Node{ID: 2, Name: "hongkong", Address: "hk.example.com",
+		Country: "HK", Enabled: false}
+	nodes = append(nodes, relayNode)
+
+	relayed := inbounds[1]
+	relayed.RelayNodeID = relayNode.ID
+	relayed.RelayPort = 443
+
+	entries, err := Build(u, nodes, inbounds, nil)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2 — the relayed one should be absent", len(entries))
+	}
+	for _, e := range entries {
+		if e.Name == relayed.Tag {
+			t.Fatalf("the relayed entry survived, pointing at %s:%d", e.Address, e.Port)
+		}
+	}
+}

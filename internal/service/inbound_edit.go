@@ -22,6 +22,12 @@ type InboundEdit struct {
 	// means the node's own address.
 	Address string
 
+	// RelayNodeID is a node the panel manages that carries this inbound
+	// instead. Zero means none. Mutually exclusive with Address; see
+	// resolveRelay.
+	RelayNodeID int64
+	RelayPort   int
+
 	// VLESS: the site whose handshake is borrowed. Reality's key pair is
 	// deliberately absent; see EditInbound.
 	Handshake string
@@ -47,7 +53,9 @@ func (s *Service) EditInbound(id int64, e InboundEdit) (*store.Inbound, error) {
 	if e.Port < 1 || e.Port > 65535 {
 		return nil, invalid("port %d out of range", e.Port)
 	}
-	if err := CheckRelayAddress(e.Address); err != nil {
+	relay, err := s.resolveRelay(in.NodeID, e.RelayNodeID, e.Port, e.RelayPort,
+		e.Address, in.ID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -106,22 +114,38 @@ func (s *Service) EditInbound(id int64, e InboundEdit) (*store.Inbound, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Compared before the fields are overwritten. The address is the one thing
-	// here the node never sees — it changes where clients are told to connect,
-	// not where anything listens — so an address-only edit must not cost every
-	// live connection on the node a listener rebuild.
+	// Compared before the fields are overwritten. The connect address is the one
+	// thing here the origin node never sees — it changes where clients are told
+	// to connect, not where anything listens — so an address-only edit must not
+	// cost every live connection on the node a listener rebuild.
 	nodeVisibleChange := in.Port != e.Port || in.Config != string(cfg)
+
+	// The relay node is a different matter. Its listener is built from this
+	// inbound's port and its node's address, so a port change rewrites a
+	// configuration on a node this edit never mentioned — and moving the relay
+	// means the node losing it has to be told as well as the node gaining it.
+	previousRelay := in.RelayNodeID
+	relayChange := in.RelayNodeID != relay.nodeID || in.RelayPort != relay.port ||
+		(relay.nodeID != 0 && in.Port != e.Port)
 
 	in.Port = e.Port
 	in.Config = string(cfg)
 	in.Client = string(cl)
-	in.Address = strings.TrimSpace(e.Address)
+	in.Address = relay.address
+	in.RelayNodeID = relay.nodeID
+	in.RelayPort = relay.port
 
 	if err := s.st.UpdateInbound(in); err != nil {
 		return nil, err
 	}
 	if nodeVisibleChange {
 		s.notify.ConfigChanged(in.NodeID)
+	}
+	if relayChange {
+		s.notifyRelayHost(previousRelay)
+		if relay.nodeID != previousRelay {
+			s.notifyRelayHost(relay.nodeID)
+		}
 	}
 	return in, nil
 }

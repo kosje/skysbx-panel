@@ -260,8 +260,17 @@ func (s *Service) UpdateNode(n *store.Node) error {
 	if prev.Enabled != n.Enabled || renamed > 0 {
 		s.notify.ConfigChanged(n.ID)
 	}
-	// The address is what subscriptions point at, so an edit changes generated
-	// configs; the node's own running config is otherwise unaffected.
+	// Everything here can move a listener on some *other* node. A relay forwards
+	// to this node's address, its tag is derived from the inbound tags a rename
+	// rewrites, and it must not stay open once this node is disabled. None of
+	// those nodes are mentioned by this edit, so nothing else would tell them.
+	if prev.Enabled != n.Enabled || renamed > 0 || prev.Address != n.Address {
+		if err := s.notifyRelayHostsOf(n.ID); err != nil {
+			return err
+		}
+	}
+	// The address is also what subscriptions point at, so an edit changes
+	// generated configs; the node's own running config is otherwise unaffected.
 	return nil
 }
 
@@ -277,7 +286,46 @@ func (s *Service) RotateNodeToken(id int64) (string, error) {
 	return token, nil
 }
 
-func (s *Service) DeleteNode(id int64) error { return s.st.DeleteNode(id) }
+// DeleteNode refuses while other nodes' inbounds are relayed through this one.
+//
+// The database would allow a cascade or a null-out; both are worse. Dropping
+// the relay silently returns those inbounds to advertising their own node's
+// address — exactly the thing the operator set the relay up to avoid, done
+// without saying so. Naming them costs one message and leaves the decision
+// where it belongs.
+func (s *Service) DeleteNode(id int64) error {
+	carried, err := s.st.InboundsRelayedVia(id)
+	if err != nil {
+		return err
+	}
+	if len(carried) > 0 {
+		tags := make([]string, 0, len(carried))
+		for _, in := range carried {
+			tags = append(tags, in.Tag)
+		}
+		return invalid("this node relays for %s; change those inbounds first, "+
+			"or they would fall back to advertising their own node's address",
+			strings.Join(tags, ", "))
+	}
+	// Inbounds on this node go with it, and each one may have a listener
+	// somewhere else. Collected before the delete, because afterwards there is
+	// nothing left to ask.
+	hosts, err := s.st.NodeInbounds(id)
+	if err != nil {
+		return err
+	}
+	if err := s.st.DeleteNode(id); err != nil {
+		return err
+	}
+	seen := map[int64]bool{}
+	for _, in := range hosts {
+		if in.RelayNodeID != 0 && !seen[in.RelayNodeID] {
+			seen[in.RelayNodeID] = true
+			s.notify.ConfigChanged(in.RelayNodeID)
+		}
+	}
+	return nil
+}
 
 // ── inbounds ────────────────────────────────────────────────────────────────
 
@@ -299,23 +347,69 @@ func (s *Service) CreateInbound(nodeID int64, spec InboundSpec) (*store.Inbound,
 	if err := checkName("inbound tag", spec.Tag); err != nil {
 		return nil, err
 	}
+	// Reserved for the listener a relay node runs on another node's behalf.
+	// Derived tags always start with a protocol slug so they cannot collide;
+	// only a hand-typed one can, and it would silently shadow a relay.
+	if strings.HasPrefix(spec.Tag, RelayTagPrefix) {
+		return nil, invalid("inbound tag cannot start with %q; that prefix names "+
+			"relay listeners", RelayTagPrefix)
+	}
 
 	in, err := BuildInbound(spec)
 	if err != nil {
 		return nil, err
 	}
 	in.NodeID = nodeID
-	// Not part of BuildInbound: this changes nothing the node is sent, only
-	// what subscriptions point at.
-	if err := CheckRelayAddress(spec.Address); err != nil {
+	// Not part of BuildInbound: neither of these changes what the node is sent,
+	// only what subscriptions point at — and in the relay case, what a
+	// *different* node is sent.
+	relay, err := s.resolveRelay(nodeID, spec.RelayNodeID, spec.Port, spec.RelayPort,
+		spec.Address, 0)
+	if err != nil {
 		return nil, err
 	}
-	in.Address = strings.TrimSpace(spec.Address)
+	in.Address, in.RelayNodeID, in.RelayPort = relay.address, relay.nodeID, relay.port
+
 	if err := s.st.CreateInbound(in); err != nil {
 		return nil, err
 	}
 	s.notify.ConfigChanged(nodeID)
+	s.notifyRelayHost(in.RelayNodeID)
 	return in, nil
+}
+
+// relaySettings is the resolved answer to "what do clients dial for this
+// inbound": an external host, a node this panel manages, or neither.
+type relaySettings struct {
+	address string
+	nodeID  int64
+	port    int
+}
+
+// resolveRelay validates the two mutually exclusive ways of putting an inbound
+// somewhere other than its own node, and normalises the unused one to zero.
+//
+// Keeping both fields populated would leave the subscription generator and the
+// relay node's configuration each reading a different one, and an inbound that
+// resolves to two addresses is a bug report nobody can reproduce.
+func (s *Service) resolveRelay(originNodeID, relayNodeID int64, port, relayPort int,
+	address string, exceptID int64,
+) (relaySettings, error) {
+	address = strings.TrimSpace(address)
+	if relayNodeID == 0 {
+		if err := CheckRelayAddress(address); err != nil {
+			return relaySettings{}, err
+		}
+		return relaySettings{address: address}, nil
+	}
+	if address != "" {
+		return relaySettings{}, invalid(
+			"an inbound relayed through a node cannot also have a connect address")
+	}
+	if err := s.checkRelay(originNodeID, relayNodeID, port, relayPort, exceptID); err != nil {
+		return relaySettings{}, err
+	}
+	return relaySettings{nodeID: relayNodeID, port: relayPort}, nil
 }
 
 // deriveInboundTag builds "<protocol>-<node>", falling back to a numeric suffix
@@ -354,6 +448,9 @@ func (s *Service) SetInboundEnabled(id int64, enabled bool) error {
 		return err
 	}
 	s.notify.ConfigChanged(in.NodeID)
+	// A relay for a disabled inbound would be an open port answering with a
+	// connection refused, so the listener goes with it either way.
+	s.notifyRelayHost(in.RelayNodeID)
 	return nil
 }
 
@@ -366,5 +463,6 @@ func (s *Service) DeleteInbound(id int64) error {
 		return err
 	}
 	s.notify.ConfigChanged(in.NodeID)
+	s.notifyRelayHost(in.RelayNodeID)
 	return nil
 }

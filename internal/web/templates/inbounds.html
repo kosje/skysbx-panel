@@ -15,7 +15,22 @@
              pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,31}"></label>
       <label>端口<input name="port" type="number" min="1" max="65535" required
              value="443" style="min-width:6rem"></label>
-      <label>连接地址（留空 = 节点地址；可带端口）
+      {{/* Two ways to put this inbound somewhere other than its own node, and
+           they answer the same question, so choosing one disables the other.
+           The select is站内中转: a node this panel already manages runs the
+           forwarder itself, and the panel writes its config. */}}
+      {{if .RelayNodes}}
+      <label>站内中转（可选）
+        <select name="relay_node_id" id="n-relay" onchange="onRelay()">
+          <option value="">不中转 —— 客户端直连本节点</option>
+          {{range .RelayNodes}}<option value="{{.ID}}">经由 {{.Name}}（{{.Address}}）</option>{{end}}
+        </select></label>
+      <label id="n-relayport" hidden>中转机监听端口
+        <input name="relay_port" type="number" min="1" max="65535" value="443"
+               style="min-width:6rem"></label>
+      {{end}}
+
+      <label id="n-addr">外部中转地址（留空 = 节点地址；可带端口）
         <input name="address" placeholder="{{.Node.Address}}" style="min-width:15rem"></label>
 
       <label id="f-handshake">Reality 握手站点
@@ -34,7 +49,10 @@
       密钥、short id、Shadowsocks 的服务端 PSK 都是自动生成的。
       三个协议里只有 <strong>AnyTLS 需要证书</strong> ——
       Reality 用自己的密钥对认证，Shadowsocks 没有 TLS 层。
-      证书路径留空就用安装脚本写入的位置（<code>{{.DefaultCertPath}}</code>）。
+      证书路径留空就用安装脚本写入的位置（<code>{{.DefaultCertPath}}</code>）。<br>
+      <strong>站内中转</strong>是让另一台节点开一个 L4 转发口把流量原样搬过来 ——
+      不解密、不认证，协议照旧在本节点上终结，所以按用户计流量、IP 限制、活动记录
+      全都不受影响。选了中转就不要再填外部中转地址，两个字段回答的是同一个问题。
     </p>
   </div>
   {{template "inbound-table" .}}
@@ -49,7 +67,19 @@ function onProto(v) {
   var port = document.querySelector('input[name=port]');
   port.value = v === 'vless' ? 443 : (v === 'anytls' ? 8443 : 8388);
 }
+// The two relay fields are alternatives, so picking one takes the other away
+// rather than leaving a form that can be filled in contradictorily and only
+// rejected on save.
+function onRelay() {
+  var sel = document.getElementById('n-relay');
+  if (!sel) return;
+  var on = sel.value !== '';
+  document.getElementById('n-relayport').hidden = !on;
+  document.getElementById('n-addr').hidden = on;
+  if (on) document.querySelector('#n-addr input').value = '';
+}
 onProto(document.querySelector('select[name=protocol]').value);
+onRelay();
 </script>
 {{template "foot" .}}
 {{end}}
@@ -93,7 +123,22 @@ onProto(document.querySelector('select[name=protocol]').value);
             <label>tag<input value="{{.Tag}}" disabled style="opacity:.5"></label>
             <label>端口<input name="port" type="number" min="1" max="65535" required
                    value="{{.Port}}" style="min-width:6rem"></label>
-            <label>连接地址（留空 = 节点地址；可带端口）
+            {{if $.RelayNodes}}
+            <label>站内中转
+              <select name="relay_node_id" id="e-relay" onchange="onEditRelay()">
+                <option value="">不中转 —— 客户端直连本节点</option>
+                {{range $.RelayNodes}}
+                  <option value="{{.ID}}"
+                    {{if eq .ID $.EditRelayNodeID}}selected{{end}}
+                    >经由 {{.Name}}（{{.Address}}）</option>
+                {{end}}
+              </select></label>
+            <label id="e-relayport">中转机监听端口
+              <input name="relay_port" type="number" min="1" max="65535"
+                     value="{{if .RelayPort}}{{.RelayPort}}{{else}}443{{end}}"
+                     style="min-width:6rem"></label>
+            {{end}}
+            <label id="e-addr">外部中转地址（留空 = 节点地址；可带端口）
               <input name="address" value="{{.Address}}"
                      placeholder="{{$.Node.Address}}" style="min-width:15rem"></label>
             {{if $.EditHandshake}}
@@ -112,11 +157,17 @@ onProto(document.querySelector('select[name=protocol]').value);
           <p class="dim" style="margin:.6rem 0 0;font-size:.8rem">
             Reality 密钥对、short id、Shadowsocks 服务端 PSK 都会原样保留，
             已发出去的订阅不会失效。改端口会重建监听，该节点上所有连接会断一次；
-            <strong>只改连接地址不会</strong> —— 节点根本看不到这个字段，它只决定订阅里
+            <strong>只改连接地址不会</strong> —— 本节点根本看不到这个字段，它只决定订阅里
             让客户端连哪里。<br>
-            中转机（realm 之类）填 <code>relay.example.net:443</code> ——
-            <strong>带上中转机监听的端口</strong>，那正是中转的意义所在（节点自己拿不到 443）。
-            不带端口就表示中转机监听的端口和节点一样。
+            <strong>站内中转</strong>：选一台节点，面板会在它上面自动开一个 L4 转发口
+            （<code class="mono">{{$.RelayPrefix}}&lt;tag&gt;</code>），把流量原样搬到本节点。
+            改中转会重建<strong>那台中转机</strong>的监听，本节点不受影响。<br>
+            <strong>外部中转地址</strong>：中转机不归面板管（realm、nginx stream 之类），
+            填 <code>relay.example.net:443</code> —— <strong>带上中转机监听的端口</strong>，
+            那正是中转的意义所在（本节点自己拿不到 443）。不带端口就表示两边端口一样。<br>
+            两者只能选一个。中转机看不见客户端的真实 IP（sing-box 1.13 移除了
+            <code class="mono">proxy_protocol</code>），所以经中转的连接在本节点上会被
+            算成同一个来源地址 —— IP 限制会变宽，但不会误杀。
           </p>
         </td>
       </tr>
@@ -128,7 +179,11 @@ onProto(document.querySelector('select[name=protocol]').value);
         {{/* What a client is told to dial, which is not always where the node
              listens: a relay puts this inbound on a port the node cannot have. */}}
         <td class="dim">
-          {{if .Address}}{{.Address}}<span class="pill live" style="margin-left:.35rem">中转</span>
+          {{if .RelayNodeID}}
+            {{index $.NodeNames .RelayNodeID}}:{{.RelayPort}}
+            <span class="pill live" style="margin-left:.35rem">站内中转</span>
+          {{else if .Address}}{{.Address}}
+            <span class="pill warn-pill" style="margin-left:.35rem">外部中转</span>
           {{else}}{{$.Node.Address}}:{{.Port}}{{end}}
         </td>
         <td>{{if .Enabled}}<span class="pill ok">启用</span>
@@ -156,5 +211,50 @@ onProto(document.querySelector('select[name=protocol]').value);
     </tbody>
   </table>
   {{end}}
+
+  {{/* Listeners this node runs for other nodes. They belong to another node's
+       rows, so they appear in no table above — and they hold ports here. An
+       open port that shows up nowhere is how "address already in use" becomes
+       a mystery. Read-only: they are edited from the inbound that owns them. */}}
+  {{if .Carried}}
+  <div style="margin-top:1.25rem;border-top:1px solid var(--line);padding-top:1rem">
+    <h2 style="font-size:.85rem;color:var(--dim);font-weight:500;margin:0 0 .6rem;
+               text-transform:uppercase;letter-spacing:.4px">本节点为其它节点中转</h2>
+    <table>
+      <thead><tr><th>tag</th><th class="num">监听端口</th><th>转发到</th>
+        <th>归属</th><th>状态</th></tr></thead>
+      <tbody>
+      {{range .Carried}}
+        <tr>
+          <td class="dim">{{.Tag}}</td>
+          <td class="num">{{.ListenPort}}</td>
+          <td class="dim">{{.Target}}</td>
+          <td><a href="/nodes/{{.Inbound.NodeID}}/inbounds">{{.OriginNode}} / {{.Inbound.Tag}}</a></td>
+          <td>{{if .Serving}}<span class="pill ok">转发中</span>
+              {{else}}<span class="pill off">已停</span>{{end}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    <p class="dim" style="margin:.6rem 0 0;font-size:.8rem">
+      纯字节转发，不解密也不认证，所以这里跑掉的带宽<strong>不会计入任何用户的流量</strong> ——
+      概览页上这个节点的流量会显示为它自己入站的部分，不含中转量。计费发生在落地节点。
+      要改端口或取消中转，去上面「归属」那一栏的入站里改。
+    </p>
+  </div>
+  {{end}}
 </div>
+<script>
+// Only present while a row is being edited. Same rule as the create form: the
+// two relay fields are alternatives, so one hides the other.
+function onEditRelay() {
+  var sel = document.getElementById('e-relay');
+  if (!sel) return;
+  var on = sel.value !== '';
+  document.getElementById('e-relayport').hidden = !on;
+  document.getElementById('e-addr').hidden = on;
+  if (on) document.querySelector('#e-addr input').value = '';
+}
+onEditRelay();
+</script>
 {{end}}

@@ -30,11 +30,20 @@ func (s *Service) NodeConfig(nodeID int64) (*singbox.Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Listeners this node runs on other nodes' behalf. They are not its
+	// inbounds — they belong to another node's rows entirely — but they are
+	// ports it has to hold open, so they are part of its configuration.
+	relays, err := s.relayInbounds(nodeID)
+	if err != nil {
+		return nil, err
+	}
+
 	// A disabled node serves nothing. Leaving its listeners up and merely
 	// hiding it from subscriptions would mean anyone holding an old link keeps
-	// getting through — which is not what turning a node off means.
+	// getting through — which is not what turning a node off means. That covers
+	// what it carries for others too: a relay is a way in.
 	if !node.Enabled {
-		inbounds = nil
+		inbounds, relays = nil, nil
 	}
 
 	// What this node refuses to carry. Part of the configuration rather than
@@ -44,8 +53,17 @@ func (s *Service) NodeConfig(nodeID int64) (*singbox.Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Relay listeners are exempt. What passes through one is an already
+	// encrypted proxy stream, so sniffing it finds the tunnel's own TLS
+	// handshake and never what the client is doing inside it — cost with no
+	// possible match. The origin node applies the same policy to the same
+	// traffic once it has decrypted it, which is where it can actually bite.
+	relayTags := make([]string, 0, len(relays))
+	for _, r := range relays {
+		relayTags = append(relayTags, r.Tag)
+	}
 	var route *singbox.ServerRoute
-	if rules := policy.routeRules(); len(rules) > 0 {
+	if rules := policy.routeRules(relayTags); len(rules) > 0 {
 		route = &singbox.ServerRoute{Rules: rules}
 	}
 
@@ -79,6 +97,7 @@ func (s *Service) NodeConfig(nodeID int64) (*singbox.Config, error) {
 		sb.Users = nil
 		cfg.Inbounds = append(cfg.Inbounds, sb)
 	}
+	cfg.Inbounds = append(cfg.Inbounds, relays...)
 	return cfg, nil
 }
 

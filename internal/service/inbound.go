@@ -39,6 +39,13 @@ type InboundSpec struct {
 	// separate host forwarding this port through to the node, which clients
 	// dial instead.
 	Address string
+
+	// RelayNodeID is the same idea done by a node the panel manages, which then
+	// runs the forwarder itself. Zero means no relay. Mutually exclusive with
+	// Address: both answer "what do clients dial", and letting them disagree
+	// would make the answer depend on which one the generator read first.
+	RelayNodeID int64
+	RelayPort   int
 }
 
 // ClientParams are the bits a client needs and the server does not: Reality's

@@ -14,7 +14,7 @@ import (
 // worst way for a block to fail.
 func TestSniffingComesFirst(t *testing.T) {
 	rules := Policy{BlockBitTorrent: true, BlockSpeedtest: true,
-		BlockedDomains: []string{"emby.example.org"}}.routeRules()
+		BlockedDomains: []string{"emby.example.org"}}.routeRules(nil)
 
 	if len(rules) == 0 {
 		t.Fatal("no rules")
@@ -36,11 +36,11 @@ func TestSniffingComesFirst(t *testing.T) {
 // Sniffing costs bytes read and compared on the first packet of every
 // connection. A node with no policy must not pay for it.
 func TestNoPolicyMeansNoRules(t *testing.T) {
-	if r := (Policy{}).routeRules(); len(r) != 0 {
+	if r := (Policy{}).routeRules(nil); len(r) != 0 {
 		t.Errorf("an empty policy produced %d rules", len(r))
 	}
 	// And a domain list alone should not sniff for bittorrent.
-	r := Policy{BlockedDomains: []string{"a.example"}}.routeRules()
+	r := Policy{BlockedDomains: []string{"a.example"}}.routeRules(nil)
 	if len(r) == 0 {
 		t.Fatal("a domain list produced no rules")
 	}

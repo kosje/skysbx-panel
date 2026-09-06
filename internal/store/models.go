@@ -84,7 +84,21 @@ type Inbound struct {
 	// inbound — the same node can have one port relayed and the rest direct.
 	//
 	// Empty means the node's address, which is almost every inbound.
+	//
+	// This is the *external* form: some host the panel knows nothing about,
+	// running realm or nginx stream. RelayNodeID below is the same idea done by
+	// a node this panel already manages, and the two are mutually exclusive.
 	Address string
+
+	// RelayNodeID is another node that carries this inbound's traffic: it runs a
+	// `direct` listener on RelayPort and copies bytes to this node's port. Zero
+	// means clients reach this inbound directly.
+	//
+	// Nothing is decrypted on the way through, so the origin node still
+	// terminates the protocol and still sees every user individually. That is
+	// the whole point of relaying at layer 4 instead of chaining proxies.
+	RelayNodeID int64
+	RelayPort   int
 
 	// Config is the sing-box inbound object, with an empty users array. Users
 	// are pushed separately so they can be hot-swapped without rebuilding the

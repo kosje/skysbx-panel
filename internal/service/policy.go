@@ -124,10 +124,21 @@ func cleanDomains(in []string) []string {
 // Order matters and is not adjustable: sniffing has to come first, because
 // every rule below it matches on what sniffing found. A rule that matches on
 // protocol above the sniff rule matches nothing, silently.
-func (p Policy) routeRules() []singbox.ServerRouteRule {
+//
+// bypass names inbounds the policy must not touch — relay listeners, which
+// carry another node's already-encrypted traffic. sing-box has no "not this
+// inbound" matcher, so the exemption is written as a terminal rule above
+// everything else: "route" is final, so a connection matching it never reaches
+// the sniffer or the rejects below.
+func (p Policy) routeRules(bypass []string) []singbox.ServerRouteRule {
 	var rules []singbox.ServerRouteRule
 	if !p.BlockBitTorrent && !p.BlockSpeedtest && len(p.BlockedDomains) == 0 {
 		return nil
+	}
+	if len(bypass) > 0 {
+		rules = append(rules, singbox.ServerRouteRule{
+			Inbound: bypass, Action: "route", Outbound: "direct",
+		})
 	}
 
 	// Only the sniffers a rule below actually needs. Each one is bytes read and

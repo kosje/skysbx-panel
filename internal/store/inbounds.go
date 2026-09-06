@@ -5,22 +5,39 @@ import (
 	"fmt"
 )
 
-const inboundCols = `id, node_id, tag, protocol, port, address, config, client, enabled`
+const inboundCols = `id, node_id, tag, protocol, port, address, ` +
+	`relay_node_id, relay_port, config, client, enabled`
 
 func scanInbound(sc interface{ Scan(...any) error }) (*Inbound, error) {
 	var in Inbound
+	// relay_node_id is NULL for every inbound clients reach directly, which is
+	// almost all of them; the model says that with a zero instead.
+	var relayNode sql.NullInt64
 	if err := sc.Scan(&in.ID, &in.NodeID, &in.Tag, &in.Protocol, &in.Port,
-		&in.Address, &in.Config, &in.Client, &in.Enabled); err != nil {
+		&in.Address, &relayNode, &in.RelayPort,
+		&in.Config, &in.Client, &in.Enabled); err != nil {
 		return nil, err
 	}
+	in.RelayNodeID = relayNode.Int64
 	return &in, nil
+}
+
+// relayNodeValue turns the model's zero back into the NULL the column holds. A
+// literal 0 would be a reference to a node that cannot exist and the foreign
+// key would reject it.
+func relayNodeValue(id int64) any {
+	if id == 0 {
+		return nil
+	}
+	return id
 }
 
 func (s *Store) CreateInbound(in *Inbound) error {
 	res, err := s.db.Exec(`INSERT INTO inbounds
-		(node_id, tag, protocol, port, address, config, client, enabled)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		(node_id, tag, protocol, port, address, relay_node_id, relay_port, config, client, enabled)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		in.NodeID, in.Tag, in.Protocol, in.Port, in.Address,
+		relayNodeValue(in.RelayNodeID), in.RelayPort,
 		in.Config, in.Client, in.Enabled)
 	if err != nil {
 		return asConflict(fmt.Errorf("create inbound %q: %w", in.Tag, err))
@@ -55,6 +72,14 @@ func (s *Store) Inbounds() ([]*Inbound, error) {
 func (s *Store) NodeInbounds(nodeID int64) ([]*Inbound, error) {
 	return s.queryInbounds(
 		`SELECT `+inboundCols+` FROM inbounds WHERE node_id = ? ORDER BY tag`, nodeID)
+}
+
+// InboundsRelayedVia returns the inbounds — on other nodes — whose traffic this
+// node is asked to carry. They are not this node's inbounds and never appear in
+// its own list, but each one becomes a listener in its configuration.
+func (s *Store) InboundsRelayedVia(nodeID int64) ([]*Inbound, error) {
+	return s.queryInbounds(
+		`SELECT `+inboundCols+` FROM inbounds WHERE relay_node_id = ? ORDER BY tag`, nodeID)
 }
 
 func (s *Store) EnabledInbounds() ([]*Inbound, error) {
@@ -134,9 +159,11 @@ func (s *Store) NodeInboundsByID(nodeID int64) ([]*Inbound, error) {
 
 func (s *Store) UpdateInbound(in *Inbound) error {
 	res, err := s.db.Exec(`UPDATE inbounds SET
-		tag = ?, protocol = ?, port = ?, address = ?, config = ?, client = ?, enabled = ?
+		tag = ?, protocol = ?, port = ?, address = ?,
+		relay_node_id = ?, relay_port = ?, config = ?, client = ?, enabled = ?
 		WHERE id = ?`,
 		in.Tag, in.Protocol, in.Port, in.Address,
+		relayNodeValue(in.RelayNodeID), in.RelayPort,
 		in.Config, in.Client, in.Enabled, in.ID)
 	if err != nil {
 		return asConflict(fmt.Errorf("update inbound %d: %w", in.ID, err))

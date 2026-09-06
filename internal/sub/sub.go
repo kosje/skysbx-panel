@@ -85,7 +85,19 @@ func Build(u *store.User, nodes []*store.Node, inbounds []*store.Inbound,
 		// which case that is what clients dial and the node's own address
 		// never appears.
 		address, port := node.Address, in.Port
-		if in.Address != "" {
+		switch {
+		case in.RelayNodeID != 0:
+			// A relay run by a node this panel manages. byNode holds only
+			// enabled nodes, so a disabled relay drops the entry rather than
+			// falling back — falling back would hand out the node's own address
+			// to everyone, which is the one thing the relay existed to prevent,
+			// and it would happen without a word.
+			relay, ok := byNode[in.RelayNodeID]
+			if !ok {
+				continue
+			}
+			address, port = relay.Address, in.RelayPort
+		case in.Address != "":
 			address, port = relayTarget(in.Address, in.Port)
 		}
 

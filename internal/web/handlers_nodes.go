@@ -224,7 +224,32 @@ func (s *Server) renderInboundsFull(w http.ResponseWriter, r *http.Request,
 		settle = 0
 	}
 
+	// The other nodes that could carry this one's inbounds, and what this one
+	// already carries for others. The second is not optional decoration: those
+	// listeners hold ports on this node while belonging to another node's rows,
+	// so without it they are open ports that appear in no table.
+	relayNodes, err := s.svc.RelayCandidates(nodeID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	carried, err := s.svc.RelaysVia(nodeID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	// Named so the 连接地址 column can say which node a relayed inbound goes out
+	// through, rather than only its address.
+	nodeNames := map[int64]string{}
+	if all, err := s.svc.Nodes(); err == nil {
+		for _, n := range all {
+			nodeNames[n.ID] = n.Name
+		}
+	}
+
 	data := map[string]any{"Node": node, "Inbounds": inbounds,
+		"RelayNodes": relayNodes, "Carried": carried, "NodeNames": nodeNames,
+		"RelayPrefix": service.RelayTagPrefix, "EditRelayNodeID": int64(0),
 		"Protocols":        []string{store.ProtoVLESS, store.ProtoAnyTLS, store.ProtoShadowsocks},
 		"DefaultHandshake": service.DefaultHandshake,
 		"DefaultCertPath":  service.DefaultCertPath,
@@ -304,15 +329,18 @@ func (s *Server) createInbound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	relayNodeID, relayPort := relayForm(r)
 	spec := service.InboundSpec{
-		Protocol:   r.FormValue("protocol"),
-		Tag:        r.FormValue("tag"),
-		Port:       port,
-		Address:    strings.TrimSpace(r.FormValue("address")),
-		Handshake:  r.FormValue("handshake"),
-		CertPath:   strings.TrimSpace(r.FormValue("cert_path")),
-		KeyPath:    strings.TrimSpace(r.FormValue("key_path")),
-		ServerName: strings.TrimSpace(r.FormValue("server_name")),
+		Protocol:    r.FormValue("protocol"),
+		Tag:         r.FormValue("tag"),
+		Port:        port,
+		Address:     strings.TrimSpace(r.FormValue("address")),
+		RelayNodeID: relayNodeID,
+		RelayPort:   relayPort,
+		Handshake:   r.FormValue("handshake"),
+		CertPath:    strings.TrimSpace(r.FormValue("cert_path")),
+		KeyPath:     strings.TrimSpace(r.FormValue("key_path")),
+		ServerName:  strings.TrimSpace(r.FormValue("server_name")),
 	}
 	// AnyTLS presents the node's own domain, which is exactly the address
 	// clients already connect to. Defaulting saves retyping it and saves the
@@ -360,6 +388,10 @@ func (s *Server) inboundEditFields(data map[string]any,
 	data["EditHandshake"] = handshake
 	data["EditTLS"] = tls
 	data["SNI"] = client.SNI
+	// Which option the relay select should open on. Read from the row rather
+	// than from the range variable so the template does not have to reach across
+	// the loop to find it.
+	data["EditRelayNodeID"] = in.RelayNodeID
 	if sb.TLS != nil {
 		data["CertPath"] = sb.TLS.CertificatePath
 		data["KeyPath"] = sb.TLS.KeyPath
@@ -396,19 +428,41 @@ func (s *Server) updateInbound(w http.ResponseWriter, r *http.Request) {
 		s.errorBanner(w, http.StatusBadRequest, "port must be a number")
 		return
 	}
+	relayNodeID, relayPort := relayForm(r)
 	in, err := s.svc.EditInbound(id, service.InboundEdit{
-		Port:       port,
-		Address:    strings.TrimSpace(r.FormValue("address")),
-		Handshake:  r.FormValue("handshake"),
-		CertPath:   strings.TrimSpace(r.FormValue("cert_path")),
-		KeyPath:    strings.TrimSpace(r.FormValue("key_path")),
-		ServerName: strings.TrimSpace(r.FormValue("server_name")),
+		Port:        port,
+		Address:     strings.TrimSpace(r.FormValue("address")),
+		RelayNodeID: relayNodeID,
+		RelayPort:   relayPort,
+		Handshake:   r.FormValue("handshake"),
+		CertPath:    strings.TrimSpace(r.FormValue("cert_path")),
+		KeyPath:     strings.TrimSpace(r.FormValue("key_path")),
+		ServerName:  strings.TrimSpace(r.FormValue("server_name")),
 	})
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
 	s.renderInbounds(w, r, in.NodeID, http.StatusOK)
+}
+
+// relayForm reads the two relay fields off a create or edit form.
+//
+// A blank or unparseable node id is no relay at all rather than an error: the
+// select's empty option is how the operator turns it off, and that arrives here
+// as an empty string. The port defaults to 443, which is the port a relay exists
+// to reach — but only when a node was actually chosen, so an inbound with no
+// relay does not carry a stray port around.
+func relayForm(r *http.Request) (nodeID int64, port int) {
+	nodeID, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("relay_node_id")), 10, 64)
+	if err != nil || nodeID <= 0 {
+		return 0, 0
+	}
+	port, err = strconv.Atoi(strings.TrimSpace(r.FormValue("relay_port")))
+	if err != nil || port == 0 {
+		port = 443
+	}
+	return nodeID, port
 }
 
 func (s *Server) toggleInbound(w http.ResponseWriter, r *http.Request) {

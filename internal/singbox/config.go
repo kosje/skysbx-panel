@@ -40,6 +40,12 @@ type ServerRoute struct {
 // An empty matcher matches everything, which is how the sniffing rule is
 // written — it has to run before any rule that matches on what was sniffed.
 type ServerRouteRule struct {
+	// Inbound matches on the tag a connection arrived through. Used to take
+	// relay listeners out of the policy rules below: what passes through one is
+	// an already-encrypted proxy stream, so sniffing it finds the tunnel's own
+	// handshake rather than what the client is really doing.
+	Inbound []string `json:"inbound,omitempty"`
+
 	Protocol      []string `json:"protocol,omitempty"`
 	Domain        []string `json:"domain,omitempty"`
 	DomainSuffix  []string `json:"domain_suffix,omitempty"`
@@ -50,6 +56,9 @@ type ServerRouteRule struct {
 	Action  string   `json:"action"`
 	Sniffer []string `json:"sniffer,omitempty"`
 	Timeout string   `json:"timeout,omitempty"`
+
+	// Outbound is where action "route" sends the connection.
+	Outbound string `json:"outbound,omitempty"`
 }
 
 type Log struct {
@@ -75,6 +84,12 @@ type Inbound struct {
 	Method   string   `json:"method,omitempty"`
 	Password string   `json:"password,omitempty"`
 	Network  []string `json:"network,omitempty"`
+
+	// Type "direct" only: where this listener forwards to. Together they make a
+	// plain layer-4 forwarder — the node copies bytes to another host and reads
+	// none of them. This is how one node relays another's inbound.
+	OverrideAddress string `json:"override_address,omitempty"`
+	OverridePort    int    `json:"override_port,omitempty"`
 }
 
 // User covers all three protocols. Name is the billing identity the node

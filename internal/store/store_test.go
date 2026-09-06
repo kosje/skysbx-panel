@@ -385,3 +385,101 @@ func TestActivityGoesWithTheUser(t *testing.T) {
 		t.Errorf("%d activity rows outlived the deleted user", count)
 	}
 }
+
+// relay_node_id is NULL when an inbound is reached directly and a real id when
+// it is relayed. The distinction matters twice: the foreign key rejects a
+// literal 0, and the model reads that NULL back as 0 — so a round trip through
+// both states is the only thing that proves the two conventions line up.
+func TestInboundRelayRoundTrip(t *testing.T) {
+	s := openTemp(t)
+
+	origin := &Node{Name: "tokyo", TokenHash: "h", Address: "jp.example.com", Enabled: true}
+	relay := &Node{Name: "hongkong", TokenHash: "h2", Address: "hk.example.com", Enabled: true}
+	for _, n := range []*Node{origin, relay} {
+		if err := s.CreateNode(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	direct := &Inbound{NodeID: origin.ID, Tag: "ss-tokyo", Protocol: ProtoShadowsocks,
+		Port: 8388, Config: "{}", Client: "{}", Enabled: true}
+	if err := s.CreateInbound(direct); err != nil {
+		t.Fatalf("create direct: %v", err)
+	}
+	got, err := s.Inbound(direct.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RelayNodeID != 0 || got.RelayPort != 0 {
+		t.Errorf("an unrelayed inbound came back as node %d port %d",
+			got.RelayNodeID, got.RelayPort)
+	}
+
+	relayed := &Inbound{NodeID: origin.ID, Tag: "vless-tokyo", Protocol: ProtoVLESS,
+		Port: 8443, Config: "{}", Client: "{}", Enabled: true,
+		RelayNodeID: relay.ID, RelayPort: 443}
+	if err := s.CreateInbound(relayed); err != nil {
+		t.Fatalf("create relayed: %v", err)
+	}
+	got, err = s.Inbound(relayed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RelayNodeID != relay.ID || got.RelayPort != 443 {
+		t.Errorf("relay came back as node %d port %d, want %d and 443",
+			got.RelayNodeID, got.RelayPort, relay.ID)
+	}
+
+	via, err := s.InboundsRelayedVia(relay.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(via) != 1 || via[0].ID != relayed.ID {
+		t.Fatalf("InboundsRelayedVia returned %d rows, want just the relayed one", len(via))
+	}
+	if n, _ := s.InboundsRelayedVia(origin.ID); len(n) != 0 {
+		t.Errorf("the origin node appears to carry %d relays", len(n))
+	}
+
+	// Clearing it has to write NULL back, not a 0 the foreign key would reject.
+	got.RelayNodeID, got.RelayPort = 0, 0
+	if err := s.UpdateInbound(got); err != nil {
+		t.Fatalf("clear relay: %v", err)
+	}
+	if again, _ := s.Inbound(relayed.ID); again.RelayNodeID != 0 {
+		t.Errorf("the relay survived being cleared: %d", again.RelayNodeID)
+	}
+	if n, _ := s.InboundsRelayedVia(relay.ID); len(n) != 0 {
+		t.Errorf("the relay node still carries %d inbounds", len(n))
+	}
+}
+
+// The backstop behind Service.DeleteNode's check. Without the foreign key a
+// direct store call would leave a row pointing at a node that no longer exists,
+// and the relay would be resolved as "no relay" on the next read.
+func TestDeletingANodeOthersRelayThroughIsRejected(t *testing.T) {
+	s := openTemp(t)
+	origin := &Node{Name: "tokyo", TokenHash: "h", Address: "a", Enabled: true}
+	relay := &Node{Name: "hongkong", TokenHash: "h2", Address: "b", Enabled: true}
+	for _, n := range []*Node{origin, relay} {
+		if err := s.CreateNode(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.CreateInbound(&Inbound{NodeID: origin.ID, Tag: "t", Protocol: ProtoVLESS,
+		Port: 443, Config: "{}", Client: "{}", Enabled: true,
+		RelayNodeID: relay.ID, RelayPort: 8443}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteNode(relay.ID); err == nil {
+		t.Error("deleting a node that carries a relay was allowed")
+	}
+	// The origin going away is fine: its inbound cascades, taking the reference.
+	if err := s.DeleteNode(origin.ID); err != nil {
+		t.Errorf("deleting the origin node: %v", err)
+	}
+	if err := s.DeleteNode(relay.ID); err != nil {
+		t.Errorf("deleting the relay node once nothing points at it: %v", err)
+	}
+}
