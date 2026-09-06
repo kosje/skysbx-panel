@@ -11,15 +11,15 @@ PANEL_REPO=${SKYSBX_REPO:-https://github.com/kosje/skysbx-panel.git}
 PANEL_REF=${SKYSBX_REF:-main}
 NODE_REPO=${SKYSBX_NODE_REPO:-https://github.com/kosje/skysbx-node.git}
 NODE_REF=${SKYSBX_NODE_REF:-main}
+ROOT=${SKYSBX_ROOT:-/opt/skysbx}
 DOMAIN=""
 EMAIL=""
 PANEL_URL=""
 TOKEN=""
-NODE_DOMAIN=""
-CF_TOKEN=""
 
 RED=$(printf '\033[31m'); GRN=$(printf '\033[32m'); BLD=$(printf '\033[1m'); RST=$(printf '\033[0m')
 say() { printf '%s==>%s %s\n' "$BLD" "$RST" "$*"; }
+ok() { printf '%s  ok%s %s\n' "$GRN" "$RST" "$*"; }
 die() { printf '%s fail%s %s\n' "$RED" "$RST" "$*" >&2; exit 1; }
 
 usage() {
@@ -34,9 +34,11 @@ join token when prompted (or provide it with --token).
   --email <addr>        Let's Encrypt contact email for the panel.
   --panel <url>         Panel URL for the node (default: https://<panel-fqdn>).
   --token <token>       Node join token created in the panel UI.
-  --node-domain <fqdn>  Node domain for AnyTLS; optional.
-  --cf-token <token>    Cloudflare DNS-01 token for the node certificate.
   -h, --help            Show this help.
+
+The node reuses the certificate already obtained by the local panel. Do not
+pass a node domain: requesting another HTTP-01 certificate would contend with
+the panel for port 80.
 
 Environment overrides: SKYSBX_REPO, SKYSBX_REF (panel), SKYSBX_NODE_REPO,
 SKYSBX_NODE_REF (node), GITHUB_TOKEN.
@@ -49,8 +51,8 @@ while [ "$#" -gt 0 ]; do
         --email) EMAIL=${2-}; shift 2 ;;
         --panel) PANEL_URL=${2-}; shift 2 ;;
         --token) TOKEN=${2-}; shift 2 ;;
-        --node-domain) NODE_DOMAIN=${2-}; shift 2 ;;
-        --cf-token) CF_TOKEN=${2-}; shift 2 ;;
+        --node-domain|--cf-token)
+            die "$1 is not supported for a same-host install; the node reuses the panel certificate" ;;
         -h|--help) usage; exit 0 ;;
         *) die "unknown option: $1 (try --help)" ;;
     esac
@@ -105,21 +107,24 @@ set -- --domain "$DOMAIN"
 [ -n "$EMAIL" ] && set -- "$@" --email "$EMAIL"
 bash "$SRC/skysbx-panel/deploy/install-panel.sh" "$@"
 
+# CertMagic keeps the panel certificate under its own storage tree, while the
+# node's default AnyTLS paths are /opt/skysbx/cert.pem and key.pem. Symlinking
+# them lets both services use one certificate and prevents the node installer
+# from starting certbot, which would otherwise fail because the panel owns :80.
+PANEL_CERT=$(find "$ROOT/certs/certificates" -type f -name "$DOMAIN.crt" -print -quit 2>/dev/null || true)
+PANEL_KEY=${PANEL_CERT%.crt}.key
+[ -n "$PANEL_CERT" ] && [ -f "$PANEL_KEY" ] \
+    || die "cannot find the panel certificate for $DOMAIN under $ROOT/certs"
+ln -sfn "$PANEL_CERT" "$ROOT/cert.pem"
+ln -sfn "$PANEL_KEY" "$ROOT/key.pem"
+ok "node will reuse the panel certificate"
+
 if [ -z "$TOKEN" ]; then
     if [ -t 0 ]; then
         printf '\nCreate a node at %s, then paste its one-time join token: ' "$PANEL_URL"
         read -r TOKEN
     fi
     [ -n "$TOKEN" ] || die 'a node join token is required; rerun with --token <token>'
-fi
-
-if [ -z "$NODE_DOMAIN" ] && [ -t 0 ]; then
-    printf '  Node domain for AnyTLS [skip]: '
-    read -r NODE_DOMAIN
-fi
-if [ -n "$NODE_DOMAIN" ] && [ -z "$CF_TOKEN" ] && [ -t 0 ]; then
-    printf '  Cloudflare DNS-01 token [skip]: '
-    read -r CF_TOKEN
 fi
 
 say "fetching $NODE_REPO@$NODE_REF installer"
@@ -129,8 +134,6 @@ NODE_INSTALL=$SRC/skysbx-node/install.sh
 [ -f "$NODE_INSTALL" ] || die "node installer is missing from $NODE_REPO"
 
 set -- --panel "$PANEL_URL" --token "$TOKEN"
-[ -n "$NODE_DOMAIN" ] && set -- "$@" --domain "$NODE_DOMAIN"
-[ -n "$CF_TOKEN" ] && set -- "$@" --cf-token "$CF_TOKEN"
 
 # The two repositories intentionally use the same SKYSBX_REPO variable for
 # their standalone launchers.  Set it explicitly here so a custom panel source
