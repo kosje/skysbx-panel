@@ -91,7 +91,18 @@ func (s *Service) nodeUserIDs(nodeID int64) (map[string]int64, error) {
 	}
 	onNode := make(map[int64]bool, len(inbounds))
 	for _, in := range inbounds {
-		onNode[in.ID] = true
+		if in.Enabled {
+			onNode[in.ID] = true
+		}
+	}
+	// A node with no enabled inbounds authenticates nobody, so it can have no
+	// traffic to report for anyone — not even an unrestricted user. That covers
+	// a relay-only node, which carries bytes it cannot attribute, and a node
+	// that has simply been emptied out. Without this an unrestricted account is
+	// billable by any node at all, which is the hole this function exists to
+	// close, reopened for the most common kind of account.
+	if len(onNode) == 0 {
+		return map[string]int64{}, nil
 	}
 
 	users, err := s.st.Users()
@@ -107,7 +118,7 @@ func (s *Service) nodeUserIDs(nodeID int64) (map[string]int64, error) {
 	for _, u := range users {
 		allowed, restricted := restrictions[u.ID]
 		if !restricted {
-			// No rows means every inbound, so every node.
+			// No rows means every inbound, so every node that has one.
 			out[u.Name] = u.ID
 			continue
 		}

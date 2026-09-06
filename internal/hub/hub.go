@@ -122,6 +122,19 @@ func (h *Hub) Handler() http.HandlerFunc {
 	}
 }
 
+// clip bounds a string a node sent, at a rune boundary so a multibyte character
+// is not cut in half into invalid UTF-8.
+func clip(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	r := []rune(s)
+	if len(r) > max {
+		r = r[:max]
+	}
+	return string(r)
+}
+
 func bearer(r *http.Request) string {
 	const prefix = "Bearer "
 	v := r.Header.Get("Authorization")
@@ -215,7 +228,12 @@ func (h *Hub) dispatch(ctx context.Context, c *conn, data []byte) error {
 				return fmt.Errorf("hello: %w", err)
 			}
 		}
-		version := strings.TrimSpace(hello.Version + " / sing-box " + hello.SingboxVersion)
+		// Bounded before it is stored or shown. A version string is a few
+		// dozen characters; a node that sends a megabyte of one is either broken
+		// or hostile, and either way it does not get to put that in the nodes
+		// table and on every render of the nodes page.
+		version := clip(strings.TrimSpace(
+			clip(hello.Version, 64)+" / sing-box "+clip(hello.SingboxVersion, 64)), 160)
 		if err := h.svc.MarkNodeSeen(c.nodeID, version); err != nil {
 			h.log.Warn("mark node seen", "node", c.nodeID, "error", err)
 		}
@@ -278,6 +296,12 @@ func (h *Hub) dispatch(ctx context.Context, c *conn, data []byte) error {
 		var st StateData
 		if err := json.Unmarshal(env.Data, &st); err != nil {
 			return fmt.Errorf("state: %w", err)
+		}
+		// The error text is shown verbatim on the inbounds page. sing-box's own
+		// messages are a line or two; anything longer is not one of them.
+		st.Error = clip(st.Error, 2000)
+		if len(st.Inbounds) > 1000 {
+			st.Inbounds = st.Inbounds[:1000]
 		}
 		c.state.Store(&st)
 		if st.Error != "" {

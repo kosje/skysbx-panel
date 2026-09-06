@@ -84,6 +84,12 @@ func TestAbsurdTrafficDeltasAreRejected(t *testing.T) {
 	svc := New(st)
 
 	node, _, _ := svc.CreateNode("tokyo", "jp.example.com", "JP")
+	// The node has to serve something, or it may not bill anyone at all and
+	// this test would pass for the wrong reason.
+	if _, err := svc.CreateInbound(node.ID, InboundSpec{
+		Protocol: store.ProtoShadowsocks, Port: 8388}); err != nil {
+		t.Fatal(err)
+	}
 	u, _ := svc.CreateUser(NewUser{Name: "alice", TrafficLimit: 10 << 30})
 
 	if err := svc.RecordTraffic(node.ID, map[string]Usage{
@@ -107,5 +113,57 @@ func TestAbsurdTrafficDeltasAreRejected(t *testing.T) {
 	}
 	if got, _ := svc.User(u.ID); got.TrafficUsed != (1<<20)+(1<<30) {
 		t.Errorf("a normal report did not land: %d", got.TrafficUsed)
+	}
+}
+
+// A node with no enabled inbounds authenticates nobody, so it has nothing to
+// report — and yet an unrestricted user is "on every node", which the first
+// version of the scoping read as "billable by every node". A relay-only node,
+// or one that has been emptied out, could charge every unrestricted account.
+func TestANodeWithNoInboundsCannotBillAnyone(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	svc := New(st)
+
+	empty, _, _ := svc.CreateNode("relaybox", "hk.example.com", "HK")
+	u, _ := svc.CreateUser(NewUser{Name: "carol"}) // unrestricted
+
+	if err := svc.RecordTraffic(empty.ID, map[string]Usage{
+		"carol": {Up: 1, Down: 1 << 30}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := svc.User(u.ID); got.TrafficUsed != 0 {
+		t.Errorf("a node with no inbounds billed %d bytes", got.TrafficUsed)
+	}
+
+	// A disabled inbound does not count either: nothing is listening on it.
+	in, err := svc.CreateInbound(empty.ID, InboundSpec{Protocol: store.ProtoShadowsocks, Port: 8388})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetInboundEnabled(in.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RecordTraffic(empty.ID, map[string]Usage{
+		"carol": {Up: 1, Down: 1 << 30}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := svc.User(u.ID); got.TrafficUsed != 0 {
+		t.Errorf("a node with only a disabled inbound billed %d bytes", got.TrafficUsed)
+	}
+
+	// Enable it and the same report lands.
+	if err := svc.SetInboundEnabled(in.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RecordTraffic(empty.ID, map[string]Usage{
+		"carol": {Up: 1, Down: 1 << 30}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := svc.User(u.ID); got.TrafficUsed == 0 {
+		t.Error("a node with a live inbound could not bill its unrestricted user")
 	}
 }

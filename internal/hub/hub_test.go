@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/coder/websocket"
 
@@ -484,5 +485,28 @@ func TestOnlineUsers(t *testing.T) {
 			t.Fatalf("online users = %v, want alice and bob", online)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// Strings a node sends are stored and rendered. A version or an error message
+// is a line; a megabyte of one is either a bug or an attempt to fill the nodes
+// table and every page that shows it.
+func TestNodeStringsAreBounded(t *testing.T) {
+	long := strings.Repeat("x", 100_000)
+	if got := clip(long, 64); len(got) != 64 {
+		t.Errorf("clip left %d bytes, want 64", len(got))
+	}
+	// Multibyte input is cut at a rune, not mid-character.
+	cjk := strings.Repeat("节", 100)
+	got := clip(cjk, 10)
+	if !utf8.ValidString(got) {
+		t.Errorf("clip produced invalid UTF-8: %q", got)
+	}
+	if utf8.RuneCountInString(got) != 10 {
+		t.Errorf("clip kept %d runes, want 10", utf8.RuneCountInString(got))
+	}
+	// Short input is untouched.
+	if got := clip("1.2.3", 64); got != "1.2.3" {
+		t.Errorf("clip altered a short string: %q", got)
 	}
 }
