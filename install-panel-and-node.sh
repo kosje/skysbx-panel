@@ -93,8 +93,10 @@ if [ "$ACTION" = install ] && [ -z "$EMAIL" ] && [ -t 0 ]; then
 fi
 [ "$ACTION" != install ] || PANEL_URL=${PANEL_URL:-"https://$DOMAIN"}
 
+# 面板安装脚本会安装 git, curl, dnsutils, docker。这里只需要确保 git 存在
+# 以便 clone 面板源码。其他依赖由面板安装脚本统一处理，避免重复检查。
 if ! command -v git >/dev/null 2>&1; then
-    say 'installing git'
+    say 'installing git (needed to clone the panel sources)'
     if command -v apt-get >/dev/null 2>&1; then
         apt-get update -qq && apt-get install -y -qq git
     elif command -v dnf >/dev/null 2>&1; then
